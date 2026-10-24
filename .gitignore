@@ -1,0 +1,25 @@
+node_modules/
+.next/
+out/
+build/
+.pnpm-store/
+.turbo/
+.vercel/
+coverage/
+*.tsbuildinfo
+.env*
+!.env.example
+npm-debug.log*
+
+# Local notes and source reference material may contain credentials or private data.
+*.txt
+*.pdf
+/alert01.jpg
+/alert02.jpg
+/data01.png
+/data002.jpg
+
+# OS/editor temporary files
+.DS_Store
+Thumbs.db
+*.swp
