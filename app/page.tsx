@@ -254,13 +254,13 @@ function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: bool
             const height = value === null ? "3px" : `${Math.min(100, Math.max(0, value / 60 * 100))}%`;
             const color = station.status === "offline" ? "#8994a4" : barColor(value);
             const label = `${station.name}: ${value === null ? "ไม่มีข้อมูลแรงดัน DC" : `${value.toFixed(1)} VDC`}${station.status === "offline" ? " · ออฟไลน์" : ""} · อัปเดต ${station.updated}`;
-            return <div className={`dc-voltage-column${station.status === "offline" ? " is-offline" : ""}`} role="listitem" tabIndex={0} key={station.id} title={label} aria-label={label}>
+            return <div className={`dc-voltage-column${station.status === "offline" ? " is-offline" : ""}`} role="listitem" tabIndex={0} key={station.id} aria-label={label}>
               <span className={`dc-voltage-bar${value === null ? " is-no-data" : ""}`}><i style={{ height, backgroundColor: color }}/></span>
               <span className="dc-voltage-tooltip" role="tooltip"><strong>{station.name}</strong><b>{value === null ? "ไม่มีข้อมูล" : `${value.toFixed(1)} VDC`}</b><small>{station.status === "offline" ? "ออฟไลน์" : "สถานะออนไลน์"} · อัปเดต {station.updated}</small></span>
             </div>;
           })}
         </div><span className="dc-voltage-reference-line" aria-hidden="true"/><span className="dc-voltage-baseline" aria-hidden="true"/></div>
-        <div className="dc-voltage-x-axis" style={{ gridTemplateColumns: stationColumns }} aria-hidden="true">{sortedStations.map(station=><span key={station.id} title={station.name}>{station.name}</span>)}</div>
+        <div className="dc-voltage-x-axis" style={{ gridTemplateColumns: stationColumns }} aria-hidden="true">{sortedStations.map(station=><span key={station.id}>{station.name}</span>)}</div>
       </div></div>
     </div> : <div className="dc-voltage-empty">ยังไม่มีข้อมูลสถานี</div>}
     <p className="dc-voltage-note">ค่าตั้งแต่ 48 VDC ขึ้นไปเป็นสีเขียว · ค่าที่ต่ำกว่า 48 VDC จะไล่สีผ่านเหลืองและส้ม จนค่าต่ำสุดในกลุ่มเป็นสีแดง · สีนี้ใช้ช่วยสังเกต ไม่ใช่ค่า Alarm</p>
