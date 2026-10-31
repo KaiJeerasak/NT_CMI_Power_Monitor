@@ -15,9 +15,6 @@ export async function POST(request: Request) {
     if (!/^[a-z0-9][a-z0-9._-]{2,29}$/.test(username)) {
       return NextResponse.json({ error: "ชื่อผู้ใช้ต้องยาว 3–30 ตัว ใช้ a-z, 0-9, จุด, ขีดล่าง หรือขีดกลาง" }, { status: 400 });
     }
-    if (["jeerasak", "user1"].includes(username)) {
-      return NextResponse.json({ error: "ชื่อผู้ใช้นี้สงวนไว้สำหรับบัญชีเริ่มต้นของระบบ" }, { status: 409 });
-    }
     if (password.length < 8 || password.length > 72 || !["admin", "user"].includes(body.role ?? "") || !["approved", "pending"].includes(body.status ?? "")) {
       return NextResponse.json({ error: "กรุณาตรวจรหัสผ่าน บทบาท และสถานะบัญชี" }, { status: 400 });
     }
