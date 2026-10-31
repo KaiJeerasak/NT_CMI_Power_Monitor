@@ -96,3 +96,4 @@
 @media(max-width:640px){.connection-state{font-size:0}.connection-state.is-live{padding:6px}.topbar-clock{font-size:9px}.topbar-right{gap:10px}}
 @media(prefers-reduced-motion:reduce){.connection-state.is-live i{animation:none}}
 .detail-backdrop{z-index:2147483000}
+.swal-icon.error{border-color:#e9b1ae;color:#ce4540}

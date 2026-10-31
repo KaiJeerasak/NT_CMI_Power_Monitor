@@ -61,9 +61,9 @@ function TopbarClock() {
   return <time className="topbar-clock" dateTime={seconds ? new Date(seconds * 1000).toISOString() : undefined} aria-label={`เวลาไทย ${seconds ? time : "กำลังโหลดเวลา"}`}>{time}</time>;
 }
 
-function SweetAlertPopup({ mode, title, message, onCancel, onConfirm, onClose }: { mode: "confirm" | "success"; title: string; message: string; onCancel?: () => void; onConfirm?: () => void; onClose?: () => void }) {
+function SweetAlertPopup({ mode, title, message, onCancel, onConfirm, onClose, busy = false }: { mode: "confirm" | "success" | "error"; title: string; message: string; onCancel?: () => void; onConfirm?: () => void; onClose?: () => void; busy?: boolean }) {
   const close = mode === "confirm" ? onCancel : onClose;
-  return <div className="swal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) close?.(); }}><section className="swal-dialog" role="alertdialog" aria-modal="true" aria-labelledby="swal-title" aria-describedby="swal-message"><span className={`swal-icon ${mode}`}>{mode === "confirm" ? "?" : <Icon name="check" size={32}/>}</span><h2 id="swal-title">{title}</h2><p id="swal-message">{message}</p><div className="swal-actions">{mode === "confirm" ? <><button className="swal-button secondary" onClick={onCancel}>ยกเลิก</button><button className="swal-button primary" onClick={onConfirm}>ยืนยันบันทึก</button></> : <button className="swal-button primary" onClick={onClose}>ตกลง</button>}</div></section></div>;
+  return <div className="swal-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) close?.(); }}><section className="swal-dialog" role="alertdialog" aria-modal="true" aria-labelledby="swal-title" aria-describedby="swal-message"><span className={`swal-icon ${mode}`}>{mode === "confirm" ? "?" : mode === "success" ? <Icon name="check" size={32}/> : "!"}</span><h2 id="swal-title">{title}</h2><p id="swal-message">{message}</p><div className="swal-actions">{mode === "confirm" ? <><button className="swal-button secondary" disabled={busy} onClick={onCancel}>ยกเลิก</button><button className="swal-button primary" disabled={busy} onClick={onConfirm}>{busy ? "กำลังบันทึก..." : "ยืนยันบันทึก"}</button></> : <button className="swal-button primary" onClick={onClose}>ตกลง</button>}</div></section></div>;
 }
 
 function StatusPill({ status }: { status: Station["status"] }) {
@@ -463,6 +463,8 @@ function StationSettingsView({ stationData, configs, onSave, powerConfigs, onSav
   const [selectedStationId, setSelectedStationId] = useState(stationData[0]?.id ?? "");
   const [pendingSave, setPendingSave] = useState<PendingStationSave | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const configFor = (stationId: string) => drafts[stationId] ?? configs[stationId] ?? defaultStationConfig();
   const powerConfigFor = (stationId: string) => powerDrafts[stationId] ?? powerConfigs[stationId] ?? defaultStationPowerConfig();
   const selectedStation = stationData.find(station => station.id === selectedStationId) ?? stationData[0];
@@ -473,16 +475,24 @@ function StationSettingsView({ stationData, configs, onSave, powerConfigs, onSav
   const completeSave = async () => {
     if (!pendingSave) return;
     const category = pendingSave.kind === "electrical" ? "ระบบไฟฟ้า" : pendingSave.kind === "battery" ? "Battery Backup" : "เครื่องกำเนิดไฟฟ้า";
-    let saved = false;
-    if (pendingSave.kind === "electrical" && pendingSave.electricalConfig) {
-      const config = { ...pendingSave.electricalConfig, confirmed: true };
-      saved = await onSave(pendingSave.stationId, config);
-      if (!saved) return;
-      setDrafts(previous => ({ ...previous, [pendingSave.stationId]: config }));
-    } else if (pendingSave.powerConfig) saved = await onSavePower(pendingSave.stationId, pendingSave.powerConfig);
-    if (!saved) return;
-    setPendingSave(null);
-    setSaveSuccess(`บันทึก${category}ของสถานี ${pendingSave.stationName} ลงฐานข้อมูลส่วนกลางเรียบร้อยแล้ว`);
+    setSaving(true);
+    setSaveError(null);
+    try {
+      let saved = false;
+      if (pendingSave.kind === "electrical" && pendingSave.electricalConfig) {
+        const config = { ...pendingSave.electricalConfig, confirmed: true };
+        saved = await onSave(pendingSave.stationId, config);
+        if (saved) setDrafts(previous => ({ ...previous, [pendingSave.stationId]: config }));
+      } else if (pendingSave.powerConfig) saved = await onSavePower(pendingSave.stationId, pendingSave.powerConfig);
+      if (!saved) throw new Error("บันทึกคอนฟิกไม่สำเร็จ กรุณาตรวจสอบ SUPABASE_SECRET_KEY ใน Vercel > Settings > Environment Variables และตรวจว่าเลือก Production แล้ว deploy ใหม่");
+      setPendingSave(null);
+      setSaveSuccess(`บันทึก${category}ของสถานี ${pendingSave.stationName} ลงฐานข้อมูลส่วนกลางเรียบร้อยแล้ว`);
+    } catch (error) {
+      setPendingSave(null);
+      setSaveError(error instanceof Error ? error.message : "บันทึกคอนฟิกไม่สำเร็จ กรุณาตรวจสอบการตั้งค่า Supabase ใน Vercel");
+    } finally {
+      setSaving(false);
+    }
   };
   return <>
     <div className="page-heading"><div><div className="eyebrow">ตั้งค่าได้โดยผู้เข้าชมทุกคน</div><h1>กำหนดค่าสถานี</h1><p>ข้อมูลระบบไฟฟ้า แบตเตอรี่สำรอง และเครื่องกำเนิดไฟฟ้ารายสถานี</p></div><span className="demo-tag"><i/>บันทึกส่วนกลาง</span></div>
@@ -524,7 +534,8 @@ function StationSettingsView({ stationData, configs, onSave, powerConfigs, onSav
         return <div className="station-infrastructure-body"><div className="station-infrastructure-fields">{numberField("จำนวนเครื่อง", "generatorCount", "เครื่อง", 1)}{numberField("กำลังเครื่องกำเนิดต่อเครื่อง", "generatorKva", "kVA", 0, 0.1)}{numberField("ปริมาณน้ำมันพร้อมใช้งานรวม", "generatorFuelLiters", "ลิตร", 0, 1)}{numberField("อัตราสิ้นเปลืองรวมของเครื่องที่ทำงาน", "generatorFuelUseLitersPerHour", "ลิตร/ชม.", 0, 0.1)}</div><div className="backup-estimate"><span className="health-symbol"><Icon name="bolt" size={19}/></span><div><small>เวลาทำงานโดยประมาณจากน้ำมันพร้อมใช้</small><strong>{generatorHours === null ? "กรอกน้ำมันในถังและอัตราสิ้นเปลือง" : `${generatorHours.toFixed(1)} ชั่วโมง`}</strong><p>ยังไม่รวมการสำรองน้ำมันและการเปลี่ยนแปลงโหลด</p></div></div><p className="station-config-help">ค่าที่บันทึกเป็นข้อมูลอ้างอิงเท่านั้น · สถานะ GEN จริงยังต้องอ่านจากสัญญาณ gen_on และยืนยันรูปแบบค่าจากอุปกรณ์</p><button className="button button-primary infrastructure-save" onClick={save}>บันทึกข้อมูลเครื่องกำเนิด</button></div>;
       })()}
     </section>}
-    {pendingSave && <SweetAlertPopup mode="confirm" title="ยืนยันการบันทึก?" message={`ต้องการบันทึก${pendingSave.kind === "electrical" ? "ระบบไฟฟ้า" : pendingSave.kind === "battery" ? "Battery Backup" : "เครื่องกำเนิดไฟฟ้า"}ของสถานี ${pendingSave.stationName} ใช่หรือไม่`} onCancel={() => setPendingSave(null)} onConfirm={completeSave}/>}
+    {pendingSave && <SweetAlertPopup mode="confirm" title="ยืนยันการบันทึก?" message={`ต้องการบันทึก${pendingSave.kind === "electrical" ? "ระบบไฟฟ้า" : pendingSave.kind === "battery" ? "Battery Backup" : "เครื่องกำเนิดไฟฟ้า"}ของสถานี ${pendingSave.stationName} ใช่หรือไม่`} onCancel={() => setPendingSave(null)} onConfirm={completeSave} busy={saving}/>}
+    {saveError && <SweetAlertPopup mode="error" title="บันทึกไม่สำเร็จ" message={saveError} onClose={() => setSaveError(null)}/>}
     {saveSuccess && <SweetAlertPopup mode="success" title="บันทึกสำเร็จ" message={saveSuccess} onClose={() => setSaveSuccess(null)}/>}
   </>;
 }
@@ -786,12 +797,13 @@ export default function Home() {
     setConfigError("");
     try {
       const response = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stationId, electrical, infrastructure }) });
-      const result = await response.json() as { error?: string };
+      const result = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "บันทึกคอนฟิกไม่สำเร็จ");
       return true;
     } catch (error) {
-      setConfigError(error instanceof Error ? error.message : "บันทึกคอนฟิกไม่สำเร็จ");
-      return false;
+      const message = error instanceof Error ? error.message : "บันทึกคอนฟิกไม่สำเร็จ";
+      setConfigError(message);
+      throw new Error(message);
     }
   };
   const saveStationConfig = async (stationId: string, config: StationElectricalConfig) => {
