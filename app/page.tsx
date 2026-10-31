@@ -226,6 +226,42 @@ function PowerChart({ stationName, live, showLoadAc = true, thresholdVoltage = 1
   </div>;
 }
 
+function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: boolean }) {
+  const sortedStations = [...stations].sort((a, b) => (a.loadDc ?? Number.POSITIVE_INFINITY) - (b.loadDc ?? Number.POSITIVE_INFINITY));
+  const values = stations.map(station => station.loadDc).filter((value): value is number => value !== null && Number.isFinite(value));
+  const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  const lowValues = values.filter(value => value < 48);
+  const lowestBelowReference = lowValues.length ? Math.min(...lowValues) : 48;
+  const barColor = (value: number | null) => {
+    if (value === null) return "#8994a4";
+    if (value >= 48) return "hsl(120 76% 40%)";
+    const hue = lowestBelowReference === 48 ? 120 : Math.max(0, Math.min(120, ((value - lowestBelowReference) / (48 - lowestBelowReference)) * 120));
+    return `hsl(${hue} 76% 48%)`;
+  };
+  return <section className="panel dc-voltage-chart" aria-labelledby="dc-voltage-heading">
+    <div className="panel-heading dc-voltage-heading">
+      <div><h2 id="dc-voltage-heading">แรงดัน DC ทุกสถานี</h2><p>{live ? "ค่าล่าสุดจาก MariaDB · load_dc" : "ข้อมูลตัวอย่าง · load_dc"} · เรียงจากแรงดันต่ำไปสูง</p></div>
+      <div className="dc-voltage-average"><span>ค่าเฉลี่ยปัจจุบัน</span><strong>{average === null ? "—" : average.toFixed(1)} <small>VDC</small></strong><span>ค่าอ้างอิง 48 VDC</span></div>
+    </div>
+    <div className="dc-voltage-scale" aria-label="สีเขียวคือ 48 โวลต์ขึ้นไป สีไล่ถึงสีแดงที่แรงดันต่ำสุดในกลุ่ม">
+      <span>ต่ำสุด</span><div className="dc-voltage-gradient"/><span>48 VDC</span>
+    </div>
+    <div className="dc-voltage-legend"><span><i className="dc-legend-normal"/>ปกติ ≥48 V</span><span><i className="dc-legend-low"/>แรงดันต่ำลง</span><span><i className="dc-legend-critical"/>ค่าต่ำสุดในกลุ่ม</span></div>
+    {sortedStations.length ? <div className="dc-voltage-bars" role="list" aria-label="แรงดัน DC ของทุกสถานี">
+      {sortedStations.map(station => {
+        const value = station.loadDc;
+        const width = value === null ? 0 : Math.min(100, Math.max(0, value / 60 * 100));
+        return <div className={`dc-voltage-row${station.status === "offline" ? " is-offline" : ""}`} role="listitem" key={station.id} title={`${station.name}: ${value === null ? "ไม่มีข้อมูล" : `${value.toFixed(1)} VDC`}`}>
+          <span className="dc-voltage-station">{station.name}{station.status === "offline" && <small>ออฟไลน์</small>}</span>
+          <span className="dc-voltage-track"><i style={{ width: `${width}%`, backgroundColor: barColor(value) }}/></span>
+          <strong>{value === null ? "—" : value.toFixed(1)}<small>{value === null ? "" : " V"}</small></strong>
+        </div>;
+      })}
+    </div> : <div className="dc-voltage-empty">ยังไม่มีข้อมูลสถานี</div>}
+    <p className="dc-voltage-note">ค่าตั้งแต่ 48 VDC ขึ้นไปเป็นสีเขียว · ค่าที่ต่ำกว่า 48 VDC จะไล่สีผ่านเหลืองและส้ม จนค่าต่ำสุดในกลุ่มเป็นสีแดง · สีนี้ใช้ช่วยสังเกต ไม่ใช่ค่า Alarm</p>
+  </section>;
+}
+
 function HistoryTrendChart({ rows, metric, gapMinutes = 15 }: { rows: HistoryRecord[]; metric: "voltage" | "temperature" | "dc"; gapMinutes?: number }) {
   const voltage = metric === "voltage";
   const temperature = metric === "temperature";
@@ -270,7 +306,6 @@ function Overview({ onSelect, onNavigate, onAcknowledge, stationData, live, alar
   const [autoHideRightPanels, setAutoHideRightPanels] = useState(false);
   const [rightPanelsPreferenceLoaded, setRightPanelsPreferenceLoaded] = useState(false);
   const [rightPanelsOpen, setRightPanelsOpen] = useState(false);
-  const [chartStationId, setChartStationId] = useState<string | null>(null);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       try { setAutoHideRightPanels(localStorage.getItem("nt-power-overview-auto-hide-right-panels") === "true"); } catch { /* Use the default layout when browser storage is unavailable. */ }
@@ -320,11 +355,9 @@ function Overview({ onSelect, onNavigate, onAcknowledge, stationData, live, alar
     }
   }, [stationData, live]);
   const chartHottestTemperature = Math.max(...temperatureChartStations.map(station => station.temperature ?? 0), 0);
-  const chartStation = stationData.find(station => station.id === chartStationId) ?? null;
-  const selectOverviewStation = (station: Station) => { setChartStationId(station.id); onSelect(station); };
   const voltageAlarmStations = displayAlarms.filter(alarm => alarm.id.startsWith("VOLTAGE-LOW-") && !alarm.resolvedAt).map(alarm => alarm.id).sort().join("|");
   const mapVersion = `${displayStations.map(station => `${station.id}:${station.status}:${station.lat ?? ""}:${station.lon ?? ""}`).join("|")}:${voltageAlarmStations}`;
-  const map = (className = "") => <ChiangMaiMap key={`${className}-${mapVersion}`} onSelect={selectOverviewStation} stationData={displayStations} alarmData={displayAlarms}/>;
+  const map = (className = "") => <ChiangMaiMap key={`${className}-${mapVersion}`} onSelect={onSelect} stationData={displayStations} alarmData={displayAlarms}/>;
   return <>
     <div className="page-heading"><div><div className="eyebrow">ข้อมูลจากอุปกรณ์ · node_date_time</div><h1>ภาพรวมระบบ</h1><p>ติดตามสถานะและข้อมูลพลังงานของสถานี NT เชียงใหม่</p></div><div className="heading-actions"><label className="right-panels-toggle"><input type="checkbox" checked={autoHideRightPanels} onChange={event=>{setAutoHideRightPanels(event.target.checked);setRightPanelsOpen(false);}}/><span>ซ่อนแผ่นงานด้านขวาอัตโนมัติ</span></label></div></div>
     <div className="stats-grid">
@@ -334,13 +367,13 @@ function Overview({ onSelect, onNavigate, onAcknowledge, stationData, live, alar
       <StatCard label="ขัดข้อง / ออฟไลน์" value={String(count("fault") + count("offline")).padStart(2,"0")} note={`ขัดข้อง ${count("fault")} · ออฟไลน์ ${count("offline")}`} icon="bolt" tone="red" trend="Alarm แรงดันต่ำกว่า 150 V"/>
     </div>
     <div className={`overview-grid${autoHideRightPanels ? ` right-panels-auto-hide${rightPanelsOpen ? " right-panels-open" : ""}` : ""}`}>
-      <section className="panel map-panel">{map("overview")}<div className="map-legend"><span><i className="dot dot-normal"/>ปกติ <b>{count("normal")}</b></span><span><i className="dot dot-warning"/>เฝ้าระวัง <b>{count("warning")}</b></span><span><i className="dot dot-fault"/>ขัดข้อง <b>{count("fault")}</b></span><span><i className="dot dot-offline"/>ออฟไลน์ <b>{count("offline")}</b></span></div>{chartStation&&<section className="panel overview-voltage-chart"><div className="panel-heading"><div><h2>แนวโน้มแรงดัน 24 ชั่วโมง</h2><p>{chartStation.name} · {live?"ค่าเฉลี่ยทุก 5 นาทีจาก site_log":"ข้อมูลตัวอย่าง · ยังไม่ได้เชื่อมต่อฐานข้อมูล"}</p></div><span className="chart-legend chart-legend-set"><i className="phase-1"/>F1 <i className="phase-2"/>F2 <i className="phase-3"/>F3 <i className="threshold-line"/>เกณฑ์ 150 V</span></div><PowerChart key={chartStation.id} stationName={chartStation.name} live={live} showLoadAc={false}/></section>}</section>
+      <section className="panel map-panel">{map("overview")}<div className="map-legend"><span><i className="dot dot-normal"/>ปกติ <b>{count("normal")}</b></span><span><i className="dot dot-warning"/>เฝ้าระวัง <b>{count("warning")}</b></span><span><i className="dot dot-fault"/>ขัดข้อง <b>{count("fault")}</b></span><span><i className="dot dot-offline"/>ออฟไลน์ <b>{count("offline")}</b></span></div><DcVoltageBarChart stations={displayStations} live={live}/></section>
       <div className={`right-stack${autoHideRightPanels ? " right-stack-auto-hide" : ""}`} onPointerEnter={event=>{if(autoHideRightPanels&&event.pointerType==="mouse")setRightPanelsOpen(true);}} onPointerLeave={event=>{if(autoHideRightPanels&&event.pointerType==="mouse")setRightPanelsOpen(false);}}>{autoHideRightPanels&&<button type="button" className="right-stack-reveal" aria-label={rightPanelsOpen?"ซ่อนแผ่นงานด้านขวา":"แสดงแผ่นงานด้านขวา"} aria-expanded={rightPanelsOpen} onClick={()=>setRightPanelsOpen(open=>!open)}><span>{rightPanelsOpen?"ซ่อนแผ่นงาน":"แผ่นงาน"}</span><b aria-hidden="true">{rightPanelsOpen?"›":"‹"}</b></button>}<div className="right-stack-panels"><section className="panel temperature-panel"><div className="panel-heading"><div><h2>อุณหภูมิสูงสุด 5 สถานี</h2><p>เรียงจากค่าสูงสุด · °C</p></div><span className="demo-tag"><i/>{live?"ข้อมูลจริง":"ตัวอย่าง"}</span></div><div className="temperature-bars" role="list" aria-label="5 สถานีที่มีอุณหภูมิสูงสุด">{temperatureChartStations.length ? temperatureChartStations.map((station,index)=><div className="temperature-row" role="listitem" key={station.id} title={`${station.name}: ${station.temperature?.toFixed(1) ?? "—"} °C`}><span className="temperature-rank">{index+1}</span><span className="temperature-name">{station.name}</span><span className="temperature-track"><i style={{width:`${chartHottestTemperature > 0 ? (station.temperature ?? 0) / chartHottestTemperature * 100 : 0}%`}}/></span><b>{station.temperature?.toFixed(1) ?? "—"}<i>°C</i></b></div>) : <p className="temperature-empty">ยังไม่มีข้อมูลอุณหภูมิจากสถานี</p>}</div><div className="temperature-update" aria-live="polite"><span>รับข้อมูล {temperatureReceivedAt}</span><span>กราฟล่าสุด {temperatureChartUpdatedAt}{live ? " · ทุก 5 รอบ" : ""}</span></div></section>
       <section className="panel alarms-preview"><div className="panel-heading"><div><h2>การแจ้งเตือนล่าสุด</h2><p>เรียงตามเวลาเริ่มเหตุการณ์</p></div><button className="text-button" onClick={() => onNavigate("alarms")}>ทั้งหมด <Icon name="arrow" size={14}/></button></div><div className="alarm-preview-list">{displayAlarms.slice(0,3).map(alarm=><div className={`alarm-preview-item ${!alarm.acknowledgedAt&&!alarm.resolvedAt?"unacknowledged":""}`} key={alarm.id}><span className={`alarm-stripe ${alarm.severity}`}/><div><strong>{alarm.station}</strong><small>{alarm.title}</small><small className="alarm-preview-time">ตรวจพบ {alarm.started}{alarm.elapsedText ? ` · ผ่านมา ${alarm.elapsedText}` : ""}</small>{alarm.dcAtStart !== undefined && <small className="alarm-preview-extra">DC เริ่ม {alarm.dcAtStart?.toFixed(1) ?? "—"} · ล่าสุด {alarm.dcLatest?.toFixed(1) ?? "—"} <i>(load_dc)</i></small>}{alarm.backupHours && <small className="alarm-preview-backup">แบตเตอรี่สำรองโดยประมาณ {backupDurationLabel(alarm.backupHours)}</small>}{alarm.reminderStage && <small className="alarm-reminder-label">{alarm.reminderStage === 60 ? "ยกระดับ: เหตุค้างเกิน 1 ชั่วโมง" : "เตือนซ้ำ: ยังไม่มีผู้รับทราบ 30 นาที"}</small>}{alarm.acknowledgedAt&&<small className="alarm-preview-ack">รับทราบโดย {alarm.acknowledgedBy} · {alarm.acknowledgedAt}</small>}</div>{!alarm.acknowledgedAt&&!alarm.resolvedAt?<button type="button" className="alarm-preview-ack-button" aria-label={`รับทราบเหตุของสถานี ${alarm.station}`} onClick={event=>{event.preventDefault();event.stopPropagation();acknowledgeFromPreview(alarm);}}>รับทราบ</button>:<span className={`severity-dot ${alarm.severity}`}/>}</div>)}</div></section></div>
     </div></div>
     {selectedStation&&<StationDetail station={selectedStation} live={live} onClose={onCloseStation} onHistory={onHistory}/>}
     {monitorMode && <div className="monitor-fullscreen"><header className="monitor-fullscreen-header"><div><span className="live-indicator"><i/> DEMO · MONITOR</span><h2>แผนที่เฝ้าระวังสถานี</h2></div><button className="button button-primary monitor-exit" onClick={()=>setMonitorMode(false)}>กลับหน้าจอปกติ</button></header><div className="monitor-fullscreen-grid"><section className="panel monitor-fullscreen-map"><div className="panel-heading"><div><h2>สถานีทั้งหมด</h2><p>ชี้เพื่อดูชื่อ/สถานะ · คลิกเพื่อเปิดรายละเอียด</p></div><span className="demo-tag"><i/>ข้อมูลตัวอย่าง</span></div>{map("monitor")}<div className="map-legend"><span><i className="dot dot-normal"/>ปกติ <b>{count("normal")}</b></span><span><i className="dot dot-warning"/>เฝ้าระวัง <b>{count("warning")}</b></span><span><i className="dot dot-fault"/>ขัดข้อง <b>{count("fault")}</b></span><span><i className="dot dot-offline"/>ออฟไลน์ <b>{count("offline")}</b></span></div></section><section className="panel monitor-fullscreen-alerts"><div className="panel-heading"><div><h2>Alert ที่ต้องติดตาม</h2><p>เรียงตามสถานี</p></div><span className="severity-label critical">{openAlarms.length} เปิดอยู่</span></div>{openAlarms.map(alarm=><article className={"alarm-card " + alarm.severity} key={alarm.id}><div className="alarm-symbol"><Icon name="bolt" size={17}/></div><div className="alarm-body"><div className="alarm-heading"><span className="severity-label critical">วิกฤต</span><small>{alarm.started}</small></div><h3>{alarm.station}</h3><p className="alarm-detail">{alarm.title}</p><p>{alarm.stationId}</p>{alarm.dcAtStart !== undefined && <div className="alarm-event-readings"><span>DC ตอนเริ่ม <b>{alarm.dcAtStart?.toFixed(1) ?? "—"}</b></span><span>DC ล่าสุด <b>{alarm.dcLatest?.toFixed(1) ?? "—"}</b> <small>{clockText(alarm.dcLatestAt)}</small></span></div>}{alarm.backupHours && <p className="alarm-backup-estimate">แบตเตอรี่สำรองโดยประมาณ {backupDurationLabel(alarm.backupHours)} <small>(คำนวณจากค่าที่ตั้งไว้)</small></p>}{alarm.elapsedText && <p className="alarm-elapsed">ผ่านมาตั้งแต่ตรวจพบ {alarm.elapsedText}{alarm.reminderStage ? ` · ${alarm.reminderStage === 60 ? "ยกระดับเกิน 1 ชม." : "เตือนซ้ำ 30 นาที"}` : ""}</p>}</div></article>)}<button className="button button-primary monitor-alert-action" onClick={()=>{setMonitorMode(false);onNavigate("alarms")}}>เปิดศูนย์แจ้งเตือน</button></section></div></div>}
-    <section className="panel station-list-panel"><div className="panel-heading"><div><h2>สถานีที่ต้องติดตาม</h2><p>สถานะอุปกรณ์และเวลาที่รับข้อมูล</p></div><button className="text-button" onClick={() => onNavigate("stations")}>ดูทั้งหมด <Icon name="arrow" size={14}/></button></div><StationTable rows={displayStations.filter(station => station.status !== "normal")} onSelect={selectOverviewStation}/></section>
+    <section className="panel station-list-panel"><div className="panel-heading"><div><h2>สถานีที่ต้องติดตาม</h2><p>สถานะอุปกรณ์และเวลาที่รับข้อมูล</p></div><button className="text-button" onClick={() => onNavigate("stations")}>ดูทั้งหมด <Icon name="arrow" size={14}/></button></div><StationTable rows={displayStations.filter(station => station.status !== "normal")} onSelect={onSelect}/></section>
   </>;
 }
 
