@@ -22,6 +22,17 @@ create table if not exists public.station_configs (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.audit_logs (
+  id bigint generated always as identity primary key,
+  actor text not null default 'system',
+  action text not null,
+  target text,
+  summary text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists station_configs_updated_by_idx on public.station_configs(updated_by);
+
 create or replace function private.is_admin()
 returns boolean
 language sql
@@ -78,11 +89,23 @@ create trigger on_power_monitor_auth_user_created
 
 alter table public.profiles enable row level security;
 alter table public.station_configs enable row level security;
+alter table public.audit_logs enable row level security;
 
 revoke all on public.profiles from anon, authenticated;
 revoke all on public.station_configs from anon, authenticated;
+revoke all on public.audit_logs from anon, authenticated;
 grant select, update(status, updated_at) on public.profiles to authenticated;
 grant select, insert, update on public.station_configs to authenticated;
+grant select, update on public.profiles to service_role;
+grant select, insert, update on public.station_configs to service_role;
+grant select, insert on public.audit_logs to service_role;
+grant usage, select on sequence public.audit_logs_id_seq to service_role;
+
+drop policy if exists "Service role can manage audit logs" on public.audit_logs;
+create policy "Service role can manage audit logs"
+  on public.audit_logs for all to service_role
+  using (true)
+  with check (true);
 
 drop policy if exists "Users can read own profile or admins can read all" on public.profiles;
 create policy "Users can read own profile or admins can read all"

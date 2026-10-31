@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { privilegedRestRequest } from "@/lib/supabase-rest";
+import { writeAuditLog } from "@/lib/audit-log";
 
 export const runtime = "nodejs";
 
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
       console.error("Config write failed", response.status);
       return NextResponse.json({ error: supabaseFailureMessage(response.status) }, { status: 503 });
     }
+    await writeAuditLog({ action: "station.config.updated", target: body.stationId, summary: `บันทึกคอนฟิกสถานี ${body.stationId}` });
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Config write request failed", error instanceof Error ? error.name : "UNKNOWN");

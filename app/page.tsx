@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alarm, incidentSample, initialAlarms, labelForStatus, readings, Station, stations } from "@/lib/demo-data";
 import { ChiangMaiMap } from "./longdo-map";
 import { AdminUsersView } from "./admin-users";
@@ -191,7 +191,7 @@ function PowerChart({ stationName, live }: { stationName: string; live: boolean 
         if (!response.ok) throw new Error(result.error ?? "โหลดข้อมูลไม่สำเร็จ");
         if (active) {
           setPoints(result.points ?? []);
-          setChartState(result.points?.length ? "ข้อมูลจาก site_log · 24 ชั่วโมงล่าสุด · รีเฟรชทุก 30 วินาที" : "ยังไม่มีข้อมูลแรงดันใน site_log ภายใน 24 ชั่วโมง");
+          setChartState(result.points?.length ? "" : "ยังไม่มีข้อมูลแรงดันใน site_log ภายใน 24 ชั่วโมง");
         }
       } catch {
         if (active) {
@@ -220,7 +220,7 @@ function PowerChart({ stationName, live }: { stationName: string; live: boolean 
       <polyline points={linePoint("mainAc1")} className="chart-voltage phase-1"/><polyline points={linePoint("mainAc2")} className="chart-voltage phase-2"/><polyline points={linePoint("mainAc3")} className="chart-voltage phase-3"/><polyline points={linePoint("loadAc")} className="chart-voltage load-phase"/>
     </svg>
     <div className="chart-x-labels">{timeLabels.map((point, index) => <span key={`${point.time}-${index}`}>{point.time.slice(11, 16) || point.time}</span>)}</div>
-    <div className="chart-data-state" role="status">{chartState}</div>
+    {chartState && <div className="chart-data-state" role="status">{chartState}</div>}
   </div>;
 }
 
@@ -356,7 +356,7 @@ function Overview({ onSelect, onNavigate, onAcknowledge, stationData, live, alar
 }
 
 function StatCard({ label, value, note, icon, tone, trend }: { label: string; value: string; note: string; icon: string; tone: string; trend: string }) {
-  return <div className="stat-card"><div className="stat-top"><span>{label}</span><span className={`stat-icon ${tone}`}><Icon name={icon} size={17}/></span></div><div className="stat-value">{value}</div><div className="stat-note">{note}</div><div className="stat-trend">{trend}</div></div>;
+  return <div className={`stat-card stat-card-${tone}`}><div className="stat-top"><span>{label}</span><span className={`stat-icon ${tone}`}><Icon name={icon} size={17}/></span></div><div className="stat-value">{value}</div><div className="stat-note">{note}</div><div className="stat-trend">{trend}</div></div>;
 }
 
 function StationTable({ rows, onSelect }: { rows: Station[]; onSelect: (s: Station) => void }) {
@@ -540,9 +540,68 @@ function StationSettingsView({ stationData, configs, onSave, powerConfigs, onSav
   </>;
 }
 
+type HealthProbe<T = unknown> = { status: "healthy" | "degraded" | "offline" | "not_configured"; latencyMs: number | null; detail: string; data?: T };
+type HealthAuditEntry = { id: number; actor: string; action: string; target: string | null; summary: string; created_at: string };
+type SystemHealth = {
+  checkedAt: string;
+  services: {
+    backend: HealthProbe;
+    mariadb: HealthProbe<{ stationCount: number; logCount: number; latestLogAt: string | null }>;
+    supabase: HealthProbe<{ users: number; admins: number; approved: number; configurations: number }>;
+    mqtt: HealthProbe;
+    pipeline: HealthProbe;
+    audit: HealthProbe<{ entries: HealthAuditEntry[]; count: number }>;
+  };
+};
+
+const healthLabels: Record<HealthProbe["status"], string> = {
+  healthy: "ใช้งานได้",
+  degraded: "ทำงานบางส่วน",
+  offline: "เชื่อมต่อไม่ได้",
+  not_configured: "ยังไม่ได้ตั้งค่า",
+};
+
 function SystemView() {
-  const services = [["Backend Monitoring","backend","บริการรับและตรวจสอบข้อมูลตัวอย่าง","ตอบสนอง"],["MQTT Broker","mqtt","ยังไม่ได้เชื่อมต่อ Broker จริง","รอการตั้งค่า"],["ฐานข้อมูล","database","ยังไม่ได้เชื่อมต่อ Supabase","รอการตั้งค่า"],["Data pipeline","pipeline","ไม่รับคำสั่งควบคุมอุปกรณ์","โหมดอ่านอย่างเดียว"]];
-  return <><div className="page-heading"><div><div className="eyebrow">การดูแลและตรวจสอบ</div><h1>สุขภาพระบบ</h1><p>สถานะบริการ การเตรียมเชื่อมต่อ และบันทึกการเปลี่ยนแปลง</p></div><span className="demo-tag"><i/>ข้อมูลตัวอย่าง</span></div><div className="health-banner"><span className="health-symbol"><Icon name="settings" size={21}/></span><div><strong>ต้นแบบพร้อมแสดงผล</strong><p>ระบบยังไม่เชื่อมต่อข้อมูลจริง · แยกสถานะอุปกรณ์ออกจากระบบ Monitor</p></div><span className="tag-neutral">Prototype</span></div><section className="panel service-panel"><div className="panel-heading"><div><h2>บริการระบบ</h2><p>ตรวจสุขภาพและเวลาตรวจสอบล่าสุด</p></div><span className="last-check"><Icon name="clock" size={15}/> ตรวจล่าสุด 10:42:18</span></div><div className="service-list">{services.map(([name,key,note,state])=><div className="service-item" key={key}><span className={`service-icon ${key}`}><Icon name={key==="mqtt"?"bolt":key==="database"?"chart":key==="backend"?"settings":"check"} size={17}/></span><div className="service-info"><strong>{name}</strong><small>{note}</small></div><span className={`service-state ${key==="backend"?"good":"waiting"}`}><i/>{state}</span></div>)}</div></section><div className="admin-grid"><section className="panel"><div className="panel-heading"><div><h2>ผู้ใช้งานและสิทธิ์</h2><p>ตาม Blueprint ที่รออนุมัตินโยบาย</p></div><Icon name="arrow" size={15}/></div><div className="role-row"><span className="role-avatar">A</span><span><strong>Admin</strong><small>จัดการบัญชี การตั้งค่า และ Audit Log</small></span><span className="tag-neutral">1 บทบาท</span></div><div className="role-row"><span className="role-avatar user">U</span><span><strong>User</strong><small>ดูข้อมูลสถานี ประวัติ และ Alarm</small></span><span className="tag-neutral">1 บทบาท</span></div><p className="small-note">ยังไม่มีระบบเข้าสู่ระบบและบัญชีจริง</p></section><section className="panel"><div className="panel-heading"><div><h2>รายการรอยืนยัน</h2><p>ก่อนเชื่อมระบบจริง</p></div></div><ul className="checklist"><li><span className="check-pending">1</span> ยืนยัน Schema ฐานข้อมูลเดิม <small>iot.site_cmi / site_log / …</small></li><li><span className="check-pending">2</span> ตรวจ Topic และ Payload MQTT</li><li><span className="check-pending">3</span> อนุมัติเกณฑ์ Alarm และสิทธิ์</li><li><span className="check-pending">4</span> กำหนด Retention, Backup และ RPO/RTO</li></ul></section></div><section className="panel audit-panel"><div className="panel-heading"><div><h2>Audit Log</h2><p>ตัวอย่างเหตุการณ์ในต้นแบบ</p></div><span className="tag-neutral">ยังไม่เก็บลงฐานข้อมูล</span></div><div className="audit-row"><span className="audit-dot blue"/><span>เปิดหน้าภาพรวมระบบ</span><small>วันนี้ 10:42:18</small><b>Prototype</b></div><div className="audit-row"><span className="audit-dot amber"/><span>ต้นแบบพร้อมใช้งานแบบข้อมูลตัวอย่าง</span><small>วันนี้ 10:30:00</small><b>System</b></div></section></>;
+  const [health, setHealth] = useState<SystemHealth | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/health", { cache: "no-store" });
+      const result = await response.json() as SystemHealth & { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "ตรวจสุขภาพระบบไม่สำเร็จ");
+      setHealth(result);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "ตรวจสุขภาพระบบไม่สำเร็จ");
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void load(); }, 0);
+    const interval = window.setInterval(() => { void load(); }, 30_000);
+    return () => { window.clearTimeout(timer); window.clearInterval(interval); };
+  }, [load]);
+
+  const services = health ? [
+    ["Backend API", "backend", health.services.backend],
+    ["MariaDB · site_cmi / site_log", "database", health.services.mariadb],
+    ["Supabase · profiles / station_configs", "pipeline", health.services.supabase],
+    ["MQTT Broker", "mqtt", health.services.mqtt],
+    ["Data pipeline", "pipeline", health.services.pipeline],
+  ] as const : [];
+  const systemHealthy = health?.services.mariadb.status === "healthy" && health.services.supabase.status === "healthy";
+  const thaiDate = (value: string | null | undefined) => value ? new Date(value).toLocaleString("th-TH", { timeZone: "Asia/Bangkok" }) : "ยังไม่มีข้อมูล";
+  const supabaseData = health?.services.supabase.data;
+  const mariaData = health?.services.mariadb.data;
+  const auditData = health?.services.audit.data;
+
+  return <>
+    <div className="page-heading"><div><div className="eyebrow">การดูแลและตรวจสอบ</div><h1>สุขภาพระบบ</h1><p>ตรวจการเชื่อมต่อจริงและเวลาเช็กล่าสุด · อัปเดตอัตโนมัติทุก 30 วินาที</p></div><button className="button button-quiet" onClick={() => void load()} disabled={loading}>{loading ? "กำลังตรวจ…" : "ตรวจอีกครั้ง"}</button></div>
+    <div className={`health-banner ${health ? systemHealthy ? "health-healthy" : "health-degraded" : ""}`}><span className="health-symbol"><Icon name={systemHealthy ? "check" : "settings"} size={21}/></span><div><strong>{error ? "ตรวจสอบระบบไม่สำเร็จ" : !health ? "กำลังตรวจบริการ…" : systemHealthy ? "บริการฐานข้อมูลพร้อมใช้งาน" : "มีบริการที่ต้องตรวจสอบ"}</strong><p>{health ? `ตรวจล่าสุด ${thaiDate(health.checkedAt)} · เวลาไทย` : error || "กำลังทดสอบ MariaDB และ Supabase"}</p></div><span className="tag-neutral">{health ? systemHealthy ? "LIVE" : "ตรวจพบปัญหา" : "รอตรวจ"}</span></div>
+    <section className="panel service-panel"><div className="panel-heading"><div><h2>ผลตรวจบริการ</h2><p>ทดสอบการอ่านตารางที่ระบบใช้งานจริง</p></div><span className="last-check">ตรวจซ้ำทุก 30 วินาที</span></div><div className="service-list">{services.map(([name, key, probe]) => <div className="service-item" key={name}><span className={`service-icon ${key}`}><Icon name={key === "mqtt" ? "bolt" : key === "backend" ? "settings" : key === "database" ? "chart" : "check"} size={17}/></span><div className="service-info"><strong>{name}</strong><small>{probe.detail}</small></div><span className={`service-state ${probe.status}`}><i/>{healthLabels[probe.status]}{probe.latencyMs !== null ? ` · ${probe.latencyMs} ms` : ""}</span></div>)}</div></section>
+    <div className="admin-grid system-health-grid"><section className="panel"><div className="panel-heading"><div><h2>ข้อมูลที่ตรวจพบ</h2><p>นับจากฐานข้อมูลจริง ณ เวลาตรวจล่าสุด</p></div></div><div className="system-metric-list"><div><span>MariaDB · สถานี</span><strong>{mariaData ? mariaData.stationCount.toLocaleString("th-TH") : "—"}</strong></div><div><span>MariaDB · รายการ site_log</span><strong>{mariaData ? mariaData.logCount.toLocaleString("th-TH") : "—"}</strong></div><div><span>site_log ล่าสุด</span><strong>{thaiDate(mariaData?.latestLogAt)}</strong></div><div><span>Supabase · ผู้ใช้ (Admin)</span><strong>{supabaseData ? `${supabaseData.users} (${supabaseData.admins})` : "—"}</strong></div><div><span>Supabase · คอนฟิกสถานี</span><strong>{supabaseData ? supabaseData.configurations : "—"}</strong></div><div><span>สถานะ Login</span><strong>ปิดอยู่ · API จัดการยังเปิดสาธารณะ</strong></div></div></section><section className="panel"><div className="panel-heading"><div><h2>Audit Log</h2><p>บันทึกการแก้คอนฟิกและจัดการผู้ใช้</p></div><span className="tag-neutral">{auditData ? `${auditData.count} รายการ` : "ยังไม่พร้อม"}</span></div>{auditData?.entries.length ? <div className="system-audit-list">{auditData.entries.map(entry => <div className="system-audit-item" key={entry.id}><span className="audit-dot blue"/><div><strong>{entry.summary}</strong><small>{entry.actor}{entry.target ? ` · ${entry.target}` : ""}</small></div><time>{thaiDate(entry.created_at)}</time></div>)}</div> : <p className="system-audit-empty">{health ? health.services.audit.detail : "กำลังโหลดประวัติ…"}</p>}</section></div>
+    <section className="panel system-capabilities"><div className="panel-heading"><div><h2>ขอบเขตบริการ</h2><p>สิ่งที่ระบบทำได้และยังไม่ได้เชื่อมต่อ</p></div></div><p><strong>Data pipeline:</strong> อ่านค่า telemetry จาก MariaDB และบันทึกคอนฟิก/บัญชีลง Supabase ผ่าน API ฝั่งเซิร์ฟเวอร์ ระบบยังไม่ส่งคำสั่งควบคุมอุปกรณ์</p><p><strong>MQTT:</strong> ยังไม่ตั้งค่า Broker จึงไม่มีการรับส่งข้อมูล MQTT</p><p><strong>Audit Log:</strong> จะเก็บเหตุการณ์หลังติดตั้งตาราง `audit_logs` ใน Supabase แล้ว</p></section>
+  </>;
 }
 
 export default function Home() {
