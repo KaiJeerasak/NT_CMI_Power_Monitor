@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { privilegedRestRequest, supabaseConfig } from "@/lib/supabase-rest";
+import { privilegedRestRequest, supabaseAdminConfig } from "@/lib/supabase-rest";
 import { writeAuditLog } from "@/lib/audit-log";
 
 export const runtime = "nodejs";
@@ -8,6 +8,7 @@ type UserRole = "admin" | "user";
 type UserStatus = "approved" | "pending" | "rejected" | "disabled";
 
 export async function POST(request: Request) {
+  let stage: "configuration" | "auth-create" | "profile-update" = "configuration";
   try {
     const body = await request.json() as { username?: string; password?: string; role?: UserRole; status?: "approved" | "pending" };
     const username = body.username?.trim().toLowerCase() ?? "";
@@ -19,7 +20,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "กรุณาตรวจรหัสผ่าน บทบาท และสถานะบัญชี" }, { status: 400 });
     }
 
-    const { url, secretKey } = supabaseConfig();
+    const { url, secretKey } = supabaseAdminConfig();
+    stage = "auth-create";
     const createResponse = await fetch(`${url}/auth/v1/admin/users`, {
       method: "POST",
       headers: { apikey: secretKey, Authorization: `Bearer ${secretKey}`, "Content-Type": "application/json" },
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "สร้างบัญชีแล้ว แต่ไม่พบรหัสผู้ใช้สำหรับกำหนดสิทธิ์" }, { status: 503 });
     }
 
+    stage = "profile-update";
     const profileResponse = await privilegedRestRequest(`profiles?id=eq.${encodeURIComponent(userId)}`, {
       method: "PATCH",
       headers: { Prefer: "return=representation" },
@@ -61,8 +64,14 @@ export async function POST(request: Request) {
     await writeAuditLog({ action: "user.created", target: username, summary: `สร้างบัญชี ${username} · ${body.role === "admin" ? "Admin" : "User"} · ${body.status === "approved" ? "อนุมัติแล้ว" : "รออนุมัติ"}` });
     return NextResponse.json({ message: `สร้างบัญชี ${username} และกำหนดสิทธิ์เรียบร้อย` }, { status: 201 });
   } catch (error) {
-    console.error("Admin user creation failed", error instanceof Error ? error.name : "unknown error");
-    return NextResponse.json({ error: "ระบบสร้างบัญชียังตั้งค่าไม่ครบ กรุณาตรวจ SUPABASE_URL และ SUPABASE_SECRET_KEY" }, { status: 503 });
+    console.error("Admin user creation failed", stage, error instanceof Error ? error.name : "unknown error");
+    if (stage === "profile-update") {
+      return NextResponse.json({ error: "สร้างบัญชี Auth แล้ว แต่กำหนดบทบาทไม่สำเร็จ กรุณารีเฟรชรายการและตรวจตาราง profiles ใน Supabase" }, { status: 503 });
+    }
+    if (stage === "configuration") {
+      return NextResponse.json({ error: "ระบบสร้างบัญชียังตั้งค่าไม่ครบ กรุณาตรวจ SUPABASE_URL และ SUPABASE_SECRET_KEY ใน Vercel Production" }, { status: 503 });
+    }
+    return NextResponse.json({ error: "เชื่อมต่อ Supabase Auth เพื่อสร้างบัญชีไม่ได้ กรุณาตรวจ SUPABASE_URL และ SUPABASE_SECRET_KEY ใน Vercel Production" }, { status: 503 });
   }
 }
 
