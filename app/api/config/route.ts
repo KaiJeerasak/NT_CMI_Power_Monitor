@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { privilegedRestRequest, requireAdmin } from "@/lib/supabase-rest";
+import { getAuthenticatedProfile, privilegedRestRequest, requireAdmin } from "@/lib/supabase-rest";
 import { writeAuditLog } from "@/lib/audit-log";
 
 export const runtime = "nodejs";
@@ -10,7 +10,15 @@ function supabaseFailureMessage(status?: number) {
   return "บันทึกคอนฟิกไม่สำเร็จ กรุณาตรวจสอบ SUPABASE_URL และ SUPABASE_SECRET_KEY ใน Vercel Production";
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  try {
+    const auth = await getAuthenticatedProfile(request);
+    if (!auth || auth.profile.status !== "approved") {
+      return NextResponse.json({ error: "กรุณาเข้าสู่ระบบด้วยบัญชีที่ได้รับอนุมัติ" }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: "ตรวจสอบการเชื่อมต่อ Supabase Auth ไม่สำเร็จ" }, { status: 503 });
+  }
   try {
     const response = await privilegedRestRequest("station_configs?select=station_id,electrical_config,infrastructure_config");
     if (!response.ok) return NextResponse.json({ error: supabaseFailureMessage(response.status) }, { status: 503 });
@@ -41,7 +49,7 @@ export async function POST(request: Request) {
         station_id: body.stationId,
         electrical_config: body.electrical,
         infrastructure_config: body.infrastructure,
-        updated_by: null,
+        updated_by: admin.profile.id,
         updated_at: new Date().toISOString(),
       }),
     });

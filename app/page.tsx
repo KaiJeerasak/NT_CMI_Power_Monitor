@@ -642,7 +642,6 @@ function Dashboard() {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (!isAdmin) return;
     let active = true;
     const loadConfigs = async () => {
       try {
@@ -879,7 +878,7 @@ function Dashboard() {
     if (saved) setStationPowerConfigs(previous => ({ ...previous, [stationId]: config }));
     return saved;
   };
-  const visibleNavItems = navItems.filter(item => isAdmin || (item.id !== "station-settings" && item.id !== "users"));
+  const visibleNavItems = navItems.filter(item => isAdmin || (item.id !== "station-settings" && item.id !== "users" && item.id !== "system"));
   const active = navItems.find(x=>x.id===view) ?? navItems[0];
   const openStationHistory = (station: Station) => { setHistoryStation(station.id); setSelectedStation(null); setView("history"); };
   return <div className="app-shell" data-theme={theme}>

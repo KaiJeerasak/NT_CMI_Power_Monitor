@@ -1,5 +1,5 @@
 import { getDbPool } from "@/lib/db";
-import { privilegedRestRequest } from "@/lib/supabase-rest";
+import { privilegedRestRequest, requireAdmin } from "@/lib/supabase-rest";
 import type { RowDataPacket } from "mysql2";
 
 export const runtime = "nodejs";
@@ -35,7 +35,14 @@ async function readSupabaseTable<T>(path: string): Promise<{ rows: T[] | null; s
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  try {
+    if (!await requireAdmin(request)) {
+      return Response.json({ error: "ต้องเข้าสู่ระบบด้วยบัญชี Admin เพื่อดูสุขภาพระบบ" }, { status: 401 });
+    }
+  } catch {
+    return Response.json({ error: "ตรวจสอบการเชื่อมต่อ Supabase Auth ไม่สำเร็จ" }, { status: 503 });
+  }
   const checkedAt = new Date().toISOString();
   const [backend, maria, profilesResult, configsResult, auditResult] = await Promise.all([
     measure(async () => ({ status: "healthy" as const, detail: "Health API ตอบสนอง" })),
