@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { privilegedRestRequest } from "@/lib/supabase-rest";
+import { privilegedRestRequest, requireAdmin } from "@/lib/supabase-rest";
 import { writeAuditLog } from "@/lib/audit-log";
 
 export const runtime = "nodejs";
@@ -23,6 +23,12 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  let admin: Awaited<ReturnType<typeof requireAdmin>> = null;
+  try { admin = await requireAdmin(request); }
+  catch { return NextResponse.json({ error: "ตรวจสอบการเชื่อมต่อ Supabase Auth ไม่สำเร็จ" }, { status: 503 }); }
+  if (!admin) {
+    return NextResponse.json({ error: "ต้องเข้าสู่ระบบด้วยบัญชี Admin เพื่อแก้คอนฟิก" }, { status: 401 });
+  }
   const body = await request.json() as { stationId?: string; electrical?: unknown; infrastructure?: unknown };
   if (!body.stationId || body.stationId.length > 100 || !body.electrical || !body.infrastructure) {
     return NextResponse.json({ error: "ข้อมูลคอนฟิกไม่ครบ" }, { status: 400 });

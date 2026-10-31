@@ -16,11 +16,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<AppProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [setupError, setSetupError] = useState("");
+  const [setupRequired, setSetupRequired] = useState(false);
   const reload = useCallback(async () => {
     try {
       const response = await fetch("/api/auth/session", { cache: "no-store" });
-      const data = await response.json() as { profile?: AppProfile | null; error?: string };
+      const data = await response.json() as { profile?: AppProfile | null; setupRequired?: boolean; error?: string };
       if (response.ok || response.status !== 503) setProfile(data.profile ?? null);
+      setSetupRequired(data.setupRequired === true);
       setSetupError(response.status === 503 ? data.error ?? "ตรวจสอบการตั้งค่า Supabase" : "");
     } catch {
       setSetupError("ติดต่อระบบยืนยันตัวตนไม่ได้");
@@ -40,13 +42,48 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (loading) return <main className="auth-screen"><div className="auth-card"><span className="auth-mark">NT</span><p>กำลังตรวจสอบบัญชี...</p></div></main>;
-  if (!profile) return <AuthForm setupError={setupError} onSignedIn={reload}/>;
+  if (!profile) return setupRequired ? <FirstAdminSetup setupError={setupError}/> : <AuthForm setupError={setupError} onSignedIn={reload}/>;
   if (profile.status !== "approved") {
     const heading = profile.status === "pending" ? "รอ Admin อนุมัติบัญชี" : profile.status === "rejected" ? "คำขอใช้งานไม่ได้รับอนุมัติ" : "บัญชีถูกระงับ";
     return <main className="auth-screen"><section className="auth-card"><span className="auth-mark">NT</span><div className="auth-eyebrow">POWER MONITOR</div><h1>{heading}</h1><p>บัญชี <strong>{profile.username}</strong> ยังไม่สามารถเข้าใช้งานระบบได้ หากต้องการข้อมูลเพิ่มเติม กรุณาติดต่อผู้ดูแลระบบ</p><button className="auth-secondary" onClick={() => void logout()}>ออกจากระบบ</button></section></main>;
   }
 
   return <AuthContext.Provider value={{ profile, logout, reload }}>{children}</AuthContext.Provider>;
+}
+
+function FirstAdminSetup({ setupError }: { setupError: string }) {
+  const [username, setUsername] = useState("jeerasak");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(setupError);
+  const [message, setMessage] = useState("");
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, role: "admin", status: "approved" }),
+      });
+      const result = await response.json() as { error?: string; message?: string };
+      if (!response.ok) throw new Error(result.error ?? "ตั้งค่า Admin ไม่สำเร็จ");
+      setMessage("สร้าง Admin คนแรกแล้ว กำลังเปิดหน้า Login…");
+      window.setTimeout(() => window.location.reload(), 1200);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "ตั้งค่า Admin ไม่สำเร็จ"); }
+    finally { setBusy(false); }
+  };
+
+  return <main className="auth-screen"><section className="auth-card">
+    <span className="auth-mark">NT</span><div className="auth-eyebrow">เริ่มต้นใช้งาน · POWER MONITOR</div>
+    <h1>ตั้งค่า Admin คนแรก</h1>
+    <p>ยังไม่มีผู้ดูแลระบบ สร้าง Admin คนแรกเพื่อเริ่ม Login หลังจากนี้ระบบจะปิดขั้นตอนตั้งค่าและให้เข้าใช้ด้วยบัญชีเท่านั้น</p>
+    <form onSubmit={submit} className="auth-form">
+      <label>ชื่อผู้ใช้<input value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" minLength={3} maxLength={30} pattern="[A-Za-z0-9][A-Za-z0-9._-]{2,29}" required/></label>
+      <label>รหัสผ่าน<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" minLength={8} maxLength={72} required placeholder="อย่างน้อย 8 ตัวอักษร"/></label>
+      {error && <div className="auth-error" role="alert">{error}</div>}{message && <div className="auth-success" role="status">{message}</div>}
+      <button className="auth-primary" disabled={busy}>{busy ? "กำลังตั้งค่า…" : "สร้าง Admin และไปหน้า Login"}</button>
+    </form>
+  </section></main>;
 }
 
 function AuthForm({ setupError, onSignedIn }: { setupError: string; onSignedIn: () => Promise<void> }) {

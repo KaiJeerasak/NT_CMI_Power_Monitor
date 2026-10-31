@@ -65,8 +65,8 @@ export function AdminUsersView() {
   };
 
   return <>
-    <div className="page-heading"><div><div className="eyebrow">การจัดการบัญชี</div><h1>ผู้ใช้งานและสิทธิ์</h1><p>สร้างบัญชี กำหนดบทบาท และอนุมัติการใช้งาน</p></div><button className="button button-quiet" onClick={() => void load()}>รีเฟรชรายการ</button></div>
-    <div className="admin-public-notice" role="note"><strong>โหมดจัดการสาธารณะ</strong><span>ขณะนี้ยังไม่ได้เปิดหน้า Login ผู้ที่เข้าเว็บไซต์ได้สามารถสร้างบัญชีหรือเปลี่ยนสิทธิ์ได้ ควรใช้เฉพาะช่วงเตรียมระบบ</span></div>
+    <div className="page-heading"><div><div className="eyebrow">ADMIN · การจัดการบัญชี</div><h1>ผู้ใช้งานและสิทธิ์</h1><p>สร้างบัญชี กำหนดบทบาท และอนุมัติการใช้งาน</p></div><button className="button button-quiet" onClick={() => void load()}>รีเฟรชรายการ</button></div>
+    <div className="admin-public-notice" role="note"><strong>สำหรับ Admin เท่านั้น</strong><span>การสร้างบัญชี เปลี่ยนบทบาท และอนุมัติผู้ใช้ถูกตรวจสิทธิ์จากเซิร์ฟเวอร์</span></div>
     <section className="panel admin-create-panel">
       <div className="panel-heading"><div><h2>สร้างบัญชีผู้ใช้</h2><p>บัญชีนี้เข้าสู่ระบบด้วยชื่อผู้ใช้และรหัสผ่านได้เมื่อเปิดหน้า Login</p></div></div>
       <form className="admin-create-form" onSubmit={createUser}>

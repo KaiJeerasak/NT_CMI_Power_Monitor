@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     result.cookies.set("pm_refresh", session.refresh_token, authCookieOptions(60 * 60 * 24 * 30));
     return result;
   } catch (error) {
-    console.error("Login failed", error instanceof Error ? error.message : "unknown error");
-    return NextResponse.json({ error: "ระบบเข้าสู่ระบบยังตั้งค่าไม่ครบ" }, { status: 503 });
+    console.error("Login failed", error instanceof Error ? error.name : "unknown error");
+    return NextResponse.json({ error: "ระบบเข้าสู่ระบบยังตั้งค่าไม่ครบ กรุณาตรวจ SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY และ SUPABASE_SECRET_KEY ใน Vercel Production" }, { status: 503 });
   }
 }

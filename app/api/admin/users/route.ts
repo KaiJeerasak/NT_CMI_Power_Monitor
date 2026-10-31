@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { privilegedRestRequest, supabaseAdminConfig } from "@/lib/supabase-rest";
+import { privilegedRestRequest, requireAdmin, supabaseAdminConfig } from "@/lib/supabase-rest";
 import { writeAuditLog } from "@/lib/audit-log";
 
 export const runtime = "nodejs";
 
 type UserRole = "admin" | "user";
 type UserStatus = "approved" | "pending" | "rejected" | "disabled";
+
+async function hasApprovedAdmin() {
+  const response = await privilegedRestRequest("profiles?select=id&role=eq.admin&status=eq.approved&limit=1");
+  if (!response.ok) throw new Error(`Admin lookup failed: ${response.status}`);
+  return (await response.json() as { id: string }[]).length > 0;
+}
 
 export async function POST(request: Request) {
   let stage: "configuration" | "auth-create" | "profile-update" = "configuration";
@@ -18,6 +24,14 @@ export async function POST(request: Request) {
     }
     if (password.length < 8 || password.length > 72 || !["admin", "user"].includes(body.role ?? "") || !["approved", "pending"].includes(body.status ?? "")) {
       return NextResponse.json({ error: "กรุณาตรวจรหัสผ่าน บทบาท และสถานะบัญชี" }, { status: 400 });
+    }
+
+    const adminExists = await hasApprovedAdmin();
+    if (adminExists && !await requireAdmin(request)) {
+      return NextResponse.json({ error: "ต้องเข้าสู่ระบบด้วยบัญชี Admin ก่อนสร้างผู้ใช้" }, { status: 401 });
+    }
+    if (!adminExists && (body.role !== "admin" || body.status !== "approved")) {
+      return NextResponse.json({ error: "กรุณาสร้าง Admin ที่อนุมัติแล้วเป็นบัญชีแรก" }, { status: 409 });
     }
 
     const { url, secretKey } = supabaseAdminConfig();
@@ -75,18 +89,35 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
-  const response = await privilegedRestRequest("profiles?select=id,username,role,status,created_at&order=created_at.desc");
-  if (!response.ok) return NextResponse.json({ error: "อ่านบัญชีผู้ใช้ไม่สำเร็จ" }, { status: 503 });
-  return NextResponse.json({ users: await response.json() });
+export async function GET(request: Request) {
+  let admin: Awaited<ReturnType<typeof requireAdmin>>;
+  try { admin = await requireAdmin(request); }
+  catch { return NextResponse.json({ error: "ตรวจสอบการเชื่อมต่อ Supabase Auth ไม่สำเร็จ" }, { status: 503 }); }
+  if (!admin) {
+    return NextResponse.json({ error: "ต้องเข้าสู่ระบบด้วยบัญชี Admin" }, { status: 401 });
+  }
+  try {
+    const response = await privilegedRestRequest("profiles?select=id,username,role,status,created_at&order=created_at.desc");
+    if (!response.ok) return NextResponse.json({ error: "อ่านบัญชีผู้ใช้ไม่สำเร็จ" }, { status: 503 });
+    return NextResponse.json({ users: await response.json() });
+  } catch {
+    return NextResponse.json({ error: "เชื่อมต่อฐานข้อมูลบัญชีผู้ใช้ไม่ได้" }, { status: 503 });
+  }
 }
 
 export async function PATCH(request: Request) {
+  let admin: Awaited<ReturnType<typeof requireAdmin>>;
+  try { admin = await requireAdmin(request); }
+  catch { return NextResponse.json({ error: "ตรวจสอบการเชื่อมต่อ Supabase Auth ไม่สำเร็จ" }, { status: 503 }); }
+  if (!admin) return NextResponse.json({ error: "ต้องเข้าสู่ระบบด้วยบัญชี Admin" }, { status: 401 });
   const body = await request.json() as { id?: string; status?: UserStatus; role?: UserRole };
   const hasStatus = body.status !== undefined && ["approved", "rejected", "disabled"].includes(body.status);
   const hasRole = body.role !== undefined && ["admin", "user"].includes(body.role);
   if (!body.id || (!hasStatus && !hasRole)) {
     return NextResponse.json({ error: "ข้อมูลไม่ถูกต้อง" }, { status: 400 });
+  }
+  if (body.id === admin.profile.id && ((hasRole && body.role !== "admin") || (hasStatus && body.status !== "approved"))) {
+    return NextResponse.json({ error: "ไม่สามารถลดสิทธิ์หรือระงับบัญชี Admin ที่กำลังใช้งานได้" }, { status: 409 });
   }
   const response = await privilegedRestRequest(`profiles?id=eq.${encodeURIComponent(body.id)}`, {
     method: "PATCH", headers: { Prefer: "return=representation" },
