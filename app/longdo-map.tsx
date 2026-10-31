@@ -116,13 +116,11 @@ export function ChiangMaiMap({ onSelect, stationData = stations, alarmData = ini
 
   if (!key) return <div className="map-canvas map-unconfigured">
     <div className="map-setup-card"><strong>แผนที่ Longdo พร้อมตั้งค่า</strong><span>เพิ่ม NEXT_PUBLIC_LONGDO_MAP_KEY ในไฟล์ .env.local แล้วรีสตาร์ตระบบ</span><small>ขณะนี้ยังไม่มี API key จึงยังไม่เรียกใช้บริการแผนที่</small></div>
-    <div className="map-credit">พิกัดสถานีในข้อมูลตัวอย่างยังเป็นตำแหน่งประมาณ · ต้องแทนด้วยพิกัดจริงก่อนใช้งาน</div>
   </div>;
 
   return <>
     <Script id="longdo-map-sdk" src={`https://api.longdo.com/map/?key=${encodeURIComponent(key)}`} strategy="afterInteractive" onReady={initialize} onError={() => setError(true)} />
     <div className="map-canvas longdo-map-canvas" ref={placeholder} aria-label="แผนที่สถานี Longdo" />
     {error && <div className="map-load-error" role="status">โหลดแผนที่ Longdo ไม่สำเร็จ ตรวจสอบ API key และโดเมนที่อนุญาต</div>}
-    <div className="map-credit longdo-map-credit">พิกัดสถานีตัวอย่างเป็นตำแหน่งประมาณ · กรุณาแทนด้วยพิกัดจริง</div>
   </>;
 }

@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alarm, incidentSample, initialAlarms, labelForStatus, readings, Station, stations } from "@/lib/demo-data";
 import { ChiangMaiMap } from "./longdo-map";
+import { AdminUsersView } from "./admin-users";
 
-type View = "overview" | "stations" | "alarms" | "history" | "station-settings" | "system";
+type View = "overview" | "stations" | "alarms" | "history" | "station-settings" | "system" | "users";
 type StationElectricalConfig = { phaseMode: "single" | "three"; singlePhase: "F1" | "F2" | "F3"; threshold: number; confirmed: boolean };
 type StationPowerConfig = {
   batteryUnitVoltage: number; batteryUnitAh: number; batterySeries: number; batteryStrings: number; batteryUsablePercent: number; batteryEfficiencyPercent: number; dcLoadWatts: number;
@@ -21,6 +22,7 @@ const navItems: { id: View; label: string; icon: string }[] = [
   { id: "history", label: "ประวัติและส่งออก", icon: "chart" },
   { id: "station-settings", label: "กำหนดค่าสถานี", icon: "settings" },
   { id: "system", label: "สุขภาพระบบ", icon: "settings" },
+  { id: "users", label: "ผู้ใช้งานและสิทธิ์", icon: "users" },
 ];
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
@@ -31,6 +33,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     bell: <><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
     chart: <><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 6-7"/><path d="M16 6h4v4"/></>,
     settings: <><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.2.9-1.2 2.1-1.4-.5a8 8 0 0 1-1.7 1l-.2 1.5h-2.4l-.3-1.5a8 8 0 0 1-1.8-1l-1.4.5-1.2-2.1 1.2-.9a7 7 0 0 1 0-2l-1.2-.9 1.2-2.1 1.4.5a8 8 0 0 1 1.8-1l.3-1.5h2.4l.2 1.5a8 8 0 0 1 1.7 1l1.4-.5 1.2 2.1-1.2.9a7 7 0 0 1 0 2Z" transform="translate(-1 -1)"/></>,
+    users: <><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
     search: <><circle cx="10.8" cy="10.8" r="6.2"/><path d="m16 16 4.5 4.5"/></>,
     download: <><path d="M12 3v12m-5-5 5 5 5-5"/><path d="M4 17v3h16v-3"/></>,
     arrow: <><path d="M7 17 17 7M7 7h10v10"/></>,
@@ -43,6 +46,19 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></>,
   };
   return <svg {...common} aria-hidden="true">{paths[name] ?? paths.grid}</svg>;
+}
+
+const subscribeToClock = (callback: () => void) => {
+  const timer = window.setInterval(callback, 1000);
+  return () => window.clearInterval(timer);
+};
+const getClockSnapshot = () => Math.floor(Date.now() / 1000);
+const getServerClockSnapshot = () => 0;
+
+function TopbarClock() {
+  const seconds = useSyncExternalStore(subscribeToClock, getClockSnapshot, getServerClockSnapshot);
+  const time = seconds ? new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(seconds * 1000) : "--:--:--";
+  return <time className="topbar-clock" dateTime={seconds ? new Date(seconds * 1000).toISOString() : undefined} aria-label={`เวลาไทย ${seconds ? time : "กำลังโหลดเวลา"}`}>{time}</time>;
 }
 
 function SweetAlertPopup({ mode, title, message, onCancel, onConfirm, onClose }: { mode: "confirm" | "success"; title: string; message: string; onCancel?: () => void; onConfirm?: () => void; onClose?: () => void }) {
@@ -248,7 +264,7 @@ function HistoryTrendChart({ rows, metric, gapMinutes = 15 }: { rows: HistoryRec
   </section>;
 }
 
-function Overview({ onSelect, onNavigate, onAcknowledge, stationData, live, alarms }: { onSelect: (station: Station) => void; onNavigate: (view: View) => void; onAcknowledge: (alarm: Alarm) => void; stationData: Station[]; live: boolean; alarms: Alarm[] }) {
+function Overview({ onSelect, onNavigate, onAcknowledge, stationData, live, alarms, selectedStation, onCloseStation, onHistory }: { onSelect: (station: Station) => void; onNavigate: (view: View) => void; onAcknowledge: (alarm: Alarm) => void; stationData: Station[]; live: boolean; alarms: Alarm[]; selectedStation: Station | null; onCloseStation: () => void; onHistory: (station: Station) => void }) {
   const [monitorMode, setMonitorMode] = useState(false);
   const [simulationPanelOpen, setSimulationPanelOpen] = useState(false);
   const [simulationActive, setSimulationActive] = useState(false);
@@ -333,6 +349,7 @@ function Overview({ onSelect, onNavigate, onAcknowledge, stationData, live, alar
       <div className="right-stack"><section className="panel temperature-panel"><div className="panel-heading"><div><h2>อุณหภูมิสูงสุด 5 สถานี</h2><p>เรียงจากค่าสูงสุด · °C</p></div><span className="demo-tag"><i/>{live?"ข้อมูลจริง":"ตัวอย่าง"}</span></div><div className="temperature-bars" role="list" aria-label="5 สถานีที่มีอุณหภูมิสูงสุด">{temperatureChartStations.length ? temperatureChartStations.map((station,index)=><div className="temperature-row" role="listitem" key={station.id} title={`${station.name}: ${station.temperature?.toFixed(1) ?? "—"} °C`}><span className="temperature-rank">{index+1}</span><span className="temperature-name">{station.name}</span><span className="temperature-track"><i style={{width:`${chartHottestTemperature > 0 ? (station.temperature ?? 0) / chartHottestTemperature * 100 : 0}%`}}/></span><b>{station.temperature?.toFixed(1) ?? "—"}<i>°C</i></b></div>) : <p className="temperature-empty">ยังไม่มีข้อมูลอุณหภูมิจากสถานี</p>}</div><div className="temperature-update" aria-live="polite"><span>รับข้อมูล {temperatureReceivedAt}</span><span>กราฟล่าสุด {temperatureChartUpdatedAt}{live ? " · ทุก 5 รอบ" : ""}</span></div></section>
       <section className="panel alarms-preview"><div className="panel-heading"><div><h2>{simulationActive?"Alert จำลองล่าสุด":"การแจ้งเตือนล่าสุด"}</h2><p>{simulationActive?"รายการจำลอง":"เรียงตามเวลาเริ่มเหตุการณ์"}</p></div><button className="text-button" onClick={() => onNavigate("alarms")}>ทั้งหมด <Icon name="arrow" size={14}/></button></div><div className="alarm-preview-list">{displayAlarms.slice(0,3).map(alarm=><div className={`alarm-preview-item ${!alarm.acknowledgedAt&&!alarm.resolvedAt?"unacknowledged":""}`} key={alarm.id}><span className={`alarm-stripe ${alarm.severity}`}/><div><strong>{alarm.station}</strong><small>{alarm.title}</small><small className="alarm-preview-time">ตรวจพบ {alarm.started}{alarm.elapsedText ? ` · ผ่านมา ${alarm.elapsedText}` : ""}</small>{alarm.dcAtStart !== undefined && <small className="alarm-preview-extra">DC เริ่ม {alarm.dcAtStart?.toFixed(1) ?? "—"} · ล่าสุด {alarm.dcLatest?.toFixed(1) ?? "—"} <i>(load_dc)</i></small>}{alarm.backupHours && <small className="alarm-preview-backup">แบตเตอรี่สำรองโดยประมาณ {backupDurationLabel(alarm.backupHours)}</small>}{alarm.reminderStage && <small className="alarm-reminder-label">{alarm.reminderStage === 60 ? "ยกระดับ: เหตุค้างเกิน 1 ชั่วโมง" : "เตือนซ้ำ: ยังไม่มีผู้รับทราบ 30 นาที"}</small>}{alarm.acknowledgedAt&&<small className="alarm-preview-ack">รับทราบโดย {alarm.acknowledgedBy} · {alarm.acknowledgedAt}</small>}</div>{!alarm.acknowledgedAt&&!alarm.resolvedAt?<button type="button" className="alarm-preview-ack-button" aria-label={`รับทราบเหตุของสถานี ${alarm.station}`} onClick={event=>{event.preventDefault();event.stopPropagation();acknowledgeFromPreview(alarm);}}>รับทราบ</button>:<span className={`severity-dot ${alarm.severity}`}/>}</div>)}</div></section></div>
     </div>
+    {selectedStation&&<StationDetail station={selectedStation} live={live} onClose={onCloseStation} onHistory={onHistory}/>}
     {monitorMode && <div className="monitor-fullscreen"><header className="monitor-fullscreen-header"><div><span className="live-indicator"><i/> {simulationActive?"SIMULATION":"DEMO · MONITOR"}</span><h2>แผนที่เฝ้าระวังสถานี</h2></div><button className="button button-primary monitor-exit" onClick={()=>setMonitorMode(false)}>กลับหน้าจอปกติ</button></header>{simulationActive&&<div className="outage-simulation-banner compact" role="status"><strong>จำลอง {selectedSimulationStation?.name}</strong><span>ข้อมูลจำลองเท่านั้น · ไม่มีการควบคุมอุปกรณ์</span></div>}<div className="monitor-fullscreen-grid"><section className="panel monitor-fullscreen-map"><div className="panel-heading"><div><h2>สถานีทั้งหมด</h2><p>ชี้เพื่อดูชื่อ/สถานะ · คลิกเพื่อเปิดรายละเอียด</p></div><span className="demo-tag"><i/>ข้อมูลตัวอย่าง</span></div>{map("monitor")}<div className="map-legend"><span><i className="dot dot-normal"/>ปกติ <b>{count("normal")}</b></span><span><i className="dot dot-warning"/>เฝ้าระวัง <b>{count("warning")}</b></span><span><i className="dot dot-fault"/>ขัดข้อง <b>{count("fault")}</b></span><span><i className="dot dot-offline"/>ออฟไลน์ <b>{count("offline")}</b></span></div></section><section className="panel monitor-fullscreen-alerts"><div className="panel-heading"><div><h2>Alert ที่ต้องติดตาม</h2><p>เรียงตามสถานี</p></div><span className="severity-label critical">{openAlarms.length} เปิดอยู่</span></div>{openAlarms.map(alarm=><article className={"alarm-card " + alarm.severity} key={alarm.id}><div className="alarm-symbol"><Icon name="bolt" size={17}/></div><div className="alarm-body"><div className="alarm-heading"><span className="severity-label critical">วิกฤต</span><small>{alarm.started}</small></div><h3>{alarm.station}</h3><p className="alarm-detail">{alarm.title}</p><p>{alarm.stationId}</p>{alarm.dcAtStart !== undefined && <div className="alarm-event-readings"><span>DC ตอนเริ่ม <b>{alarm.dcAtStart?.toFixed(1) ?? "—"}</b></span><span>DC ล่าสุด <b>{alarm.dcLatest?.toFixed(1) ?? "—"}</b> <small>{clockText(alarm.dcLatestAt)}</small></span></div>}{alarm.backupHours && <p className="alarm-backup-estimate">แบตเตอรี่สำรองโดยประมาณ {backupDurationLabel(alarm.backupHours)} <small>(คำนวณจากค่าที่ตั้งไว้)</small></p>}{alarm.elapsedText && <p className="alarm-elapsed">ผ่านมาตั้งแต่ตรวจพบ {alarm.elapsedText}{alarm.reminderStage ? ` · ${alarm.reminderStage === 60 ? "ยกระดับเกิน 1 ชม." : "เตือนซ้ำ 30 นาที"}` : ""}</p>}</div></article>)}<button className="button button-primary monitor-alert-action" onClick={()=>{setMonitorMode(false);onNavigate("alarms")}}>เปิดศูนย์แจ้งเตือน</button></section></div></div>}
     <section className="panel station-list-panel"><div className="panel-heading"><div><h2>{simulationActive?"สถานีในสถานการณ์จำลอง":"สถานีที่ต้องติดตาม"}</h2><p>สถานะอุปกรณ์และเวลาที่รับข้อมูล</p></div><button className="text-button" onClick={() => onNavigate("stations")}>ดูทั้งหมด <Icon name="arrow" size={14}/></button></div><StationTable rows={displayStations.filter(station => simulationActive && station.id === selectedSimulationStation?.id || station.status !== "normal")} onSelect={onSelect}/></section>
   </>;
@@ -439,7 +456,7 @@ function HistoryView({ initialStation = "CM-001", stationData, live }: { initial
   return <><div className="page-heading"><div><div className="eyebrow">ข้อมูลย้อนหลัง</div><h1>ประวัติและส่งออก</h1><p>ค้นหาค่าทางไฟฟ้า สภาพแวดล้อม Alarm และวิเคราะห์เหตุขัดข้อง</p></div><span className="demo-tag"><i/>{kind!=="telemetry"||!live?"ข้อมูลตัวอย่าง":"ข้อมูลจริง · MariaDB"}</span></div><section className="panel history-filter"><div className="form-grid"><label>สถานี<select value={station} onChange={e=>setStation(e.target.value)}>{(live?stationData:stations).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label><label>ประเภทข้อมูล<select value={kind} onChange={e=>setKind(e.target.value)}><option value="telemetry">ค่าทางไฟฟ้าและสภาพแวดล้อม</option><option value="alarms">ประวัติ Alarm</option><option value="incident">วิเคราะห์เหตุขัดข้อง</option></select></label><label>ตั้งแต่<input type="date" value={from} max={to} onChange={e=>setFrom(e.target.value)}/></label><label>ถึง<input type="date" value={to} min={from} onChange={e=>setTo(e.target.value)}/></label></div><div className="filter-bottom"><p><Icon name="clock" size={15}/> {kind==="telemetry"?(live?"ค้นจาก site_log · จำกัด 5,000 รายการ":"โหมดตัวอย่าง · ไม่ใช่ข้อมูลจริง"):"Alarm และวิเคราะห์เหตุการณ์ยังเป็นข้อมูลตัวอย่าง"}</p><button className="button button-primary" onClick={exportCsv} disabled={kind==="telemetry"?(live?visibleHistoryRows.length===0:demoRows.length===0):false}><Icon name="download" size={16}/> ส่งออก CSV</button></div></section>{kind === "telemetry" && live && <section className="panel history-trends"><div className="history-trends-toolbar"><div><h2>กราฟแนวโน้ม</h2><p>ช่วงเวลานี้ใช้กับกราฟ · วันที่ด้านบนใช้กรองตารางและ CSV</p></div><div className="filter-tabs history-range-tabs" role="group" aria-label="ช่วงเวลาของกราฟ">{[["realtime","เรียลไทม์ · 1 ชม."],["3h","3 ชั่วโมง"],["1d","1 วัน"],["3d","3 วัน"],["1w","1 สัปดาห์"]].map(([value,label])=><button key={value} className={chartRange===value?"active":""} aria-pressed={chartRange===value} onClick={()=>setChartRange(value as HistoryChartRange)}>{label}</button>)}</div></div><p className="history-trends-state" role="status">{chartState}</p><div className="history-chart-grid"><HistoryTrendChart rows={chartRows} metric="voltage" gapMinutes={chartRange==="1w"?120:chartRange==="3d"?45:15}/><HistoryTrendChart rows={chartRows} metric="temperature" gapMinutes={chartRange==="1w"?120:chartRange==="3d"?45:15}/><HistoryTrendChart rows={chartRows} metric="dc" gapMinutes={chartRange==="1w"?120:chartRange==="3d"?45:15}/></div></section>}<section className="panel list-panel history-results"><div className="panel-heading"><div><h2>{kind==="telemetry"?"ค่าจากสถานี":incident?"วิเคราะห์เหตุการณ์":"ประวัติ Alarm"}</h2><p>{activeStation?.name??station} · {kind==="telemetry"&&live?from+" ถึง "+to+" · MariaDB / site_log":"ข้อมูลตัวอย่าง"}</p></div>{!incident&&<label className="search-box compact"><Icon name="search" size={16}/><input placeholder="ค้นหาเวลา" value={query} onChange={e=>setQuery(e.target.value)}/></label>}</div>{kind==="telemetry"?<div className="table-wrap"><table><thead><tr><th>เวลาในบันทึก</th><th>สถานี</th><th>เฟส 1 (V)</th><th>เฟส 2 (V)</th><th>เฟส 3 (V)</th><th>โหลด AC (V)</th><th>load_dc*</th><th>อุณหภูมิ (°C)</th><th>ความชื้น (%)</th></tr></thead><tbody>{live?visibleHistoryRows.map((r,i)=><tr key={r.dt+"-"+i}><td>{r.dt}</td><td>{r.station}</td><td>{r.mainAc1?.toFixed(1)??"—"}</td><td>{r.mainAc2?.toFixed(1)??"—"}</td><td>{r.mainAc3?.toFixed(1)??"—"}</td><td>{r.loadAc?.toFixed(1)??"—"}</td><td>{r.loadDc?.toFixed(2)??"—"}</td><td>{r.temperature?.toFixed(1)??"—"}</td><td>{r.humidity?.toFixed(1)??"—"}</td></tr>):demoRows.map(r=><tr key={r.time}><td>23 ต.ค. 2569 · {r.time}</td><td>{activeStation?.name??station}</td><td>{r.mainAc1.toFixed(1)}</td><td>{r.mainAc2.toFixed(1)}</td><td>{r.mainAc3.toFixed(1)}</td><td>{r.loadAc.toFixed(1)}</td><td>{r.loadDc.toFixed(2)}</td><td>{r.temperature.toFixed(1)}</td><td>{r.humidity.toFixed(1)}</td></tr>)}</tbody></table></div>:incident?<><div className="incident-overview"><div className="incident-title"><span className="incident-icon"><Icon name="bolt" size={18}/></span><div><b>{incidentSample.title}</b><small>{incidentSample.id} · สถานี {incidentSample.stationId} · เริ่ม 23 ต.ค. 2569 เวลา {incidentSample.startedAt}</small></div></div><div className="incident-duration"><small>ระยะเวลาที่ผ่านไป</small><strong>{incidentSample.elapsed}</strong><span>ยังไม่พบเวลาสิ้นสุดเหตุ</span></div></div><div className="incident-table-wrap"><table><thead><tr><th>ช่วงเหตุการณ์</th><th>เวลา</th><th>ขาเข้า F1 (V)</th><th>F2 (V)</th><th>F3 (V)</th><th>โหลด AC (V)</th><th>load_dc*</th><th>gen_on · รหัสดิบ</th></tr></thead><tbody>{incidentSample.snapshots.map(s=><tr key={s.label}><td><span className={s.label==="ค่าล่าสุด"?"incident-stage latest":"incident-stage"}>{s.label}</span></td><td>{s.time}</td><td>{s.mainAc1.toFixed(1)}</td><td>{s.mainAc2.toFixed(1)}</td><td>{s.mainAc3.toFixed(1)}</td><td>{s.loadAc.toFixed(1)}</td><td><b>{s.loadDc.toFixed(2)}</b></td><td><code>{s.genOn}</code></td></tr>)}</tbody></table></div><div className="incident-caveats"><span>ตัวอย่างนี้เป็นข้อมูลจำลองเพื่อสาธิตการเปรียบเทียบ</span><span>load_dc ยังไม่ยืนยันหน่วย · gen_on แสดงรหัสดิบ ยังไม่สรุปว่า GEN ทำงานหรือไม่</span></div></>:<div className="table-wrap"><table><thead><tr><th>เวลาเริ่ม</th><th>เหตุการณ์</th><th>ระดับ</th><th>สถานะ</th></tr></thead><tbody>{initialAlarms.map(a=><tr key={a.id}><td>{a.started}</td><td>{a.title}</td><td>{a.severity==="critical"?"วิกฤต":"เฝ้าระวัง"}</td><td>{a.resolvedAt?"คืนสู่ปกติ":a.acknowledgedAt?"รับทราบแล้ว":"กำลังดำเนินการ"}</td></tr>)}</tbody></table><div className="table-footnote">ประวัติ Alarm นี้ยังเป็นข้อมูลตัวอย่าง ไม่มีตารางเก็บเหตุการณ์ย้อนหลัง</div></div>}{kind==="telemetry"&&<div className="table-footnote" role="status">{live?historyState:"ข้อมูลตัวอย่าง · ยังไม่ได้เชื่อมต่อฐานข้อมูล"}{historyLimitReached&&" · แสดงสูงสุด 5,000 รายการ กรุณาจำกัดช่วงวันที่"}<br/>* load_dc แสดงค่าดิบ หน่วยยังรอยืนยัน</div>}</section></>;
 }
 
-function StationSettingsView({ stationData, configs, onSave, powerConfigs, onSavePower }: { stationData: Station[]; configs: Record<string, StationElectricalConfig>; onSave: (stationId: string, config: StationElectricalConfig) => void; powerConfigs: Record<string, StationPowerConfig>; onSavePower: (stationId: string, config: StationPowerConfig) => void }) {
+function StationSettingsView({ stationData, configs, onSave, powerConfigs, onSavePower, configError }: { stationData: Station[]; configs: Record<string, StationElectricalConfig>; onSave: (stationId: string, config: StationElectricalConfig) => Promise<boolean>; powerConfigs: Record<string, StationPowerConfig>; onSavePower: (stationId: string, config: StationPowerConfig) => Promise<boolean>; configError: string }) {
   const [drafts, setDrafts] = useState<Record<string, StationElectricalConfig>>({});
   const [powerDrafts, setPowerDrafts] = useState<Record<string, StationPowerConfig>>({});
   const [activeTab, setActiveTab] = useState<StationConfigTab>("electrical");
@@ -453,20 +470,24 @@ function StationSettingsView({ stationData, configs, onSave, powerConfigs, onSav
   const edit = (stationId: string, changes: Partial<StationElectricalConfig>) => {
     setDrafts(previous => ({ ...previous, [stationId]: { ...configFor(stationId), ...changes } }));
   };
-  const completeSave = () => {
+  const completeSave = async () => {
     if (!pendingSave) return;
     const category = pendingSave.kind === "electrical" ? "ระบบไฟฟ้า" : pendingSave.kind === "battery" ? "Battery Backup" : "เครื่องกำเนิดไฟฟ้า";
+    let saved = false;
     if (pendingSave.kind === "electrical" && pendingSave.electricalConfig) {
       const config = { ...pendingSave.electricalConfig, confirmed: true };
-      onSave(pendingSave.stationId, config);
+      saved = await onSave(pendingSave.stationId, config);
+      if (!saved) return;
       setDrafts(previous => ({ ...previous, [pendingSave.stationId]: config }));
-    } else if (pendingSave.powerConfig) onSavePower(pendingSave.stationId, pendingSave.powerConfig);
+    } else if (pendingSave.powerConfig) saved = await onSavePower(pendingSave.stationId, pendingSave.powerConfig);
+    if (!saved) return;
     setPendingSave(null);
-    setSaveSuccess(`บันทึก${category}ของสถานี ${pendingSave.stationName} เรียบร้อยแล้ว · ข้อมูลเก็บในเบราว์เซอร์นี้`);
+    setSaveSuccess(`บันทึก${category}ของสถานี ${pendingSave.stationName} ลงฐานข้อมูลส่วนกลางเรียบร้อยแล้ว`);
   };
   return <>
-    <div className="page-heading"><div><div className="eyebrow">การตั้งค่าผู้ดูแล</div><h1>กำหนดค่าสถานี</h1><p>ข้อมูลระบบไฟฟ้า แบตเตอรี่สำรอง และเครื่องกำเนิดไฟฟ้ารายสถานี</p></div><span className="demo-tag"><i/>บันทึกในเบราว์เซอร์นี้</span></div>
-    <div className="health-banner station-config-notice"><span className="health-symbol"><Icon name="settings" size={21}/></span><div><strong>การตั้งค่ายังเก็บในเบราว์เซอร์นี้</strong><p>ค่าแบตเตอรี่และเครื่องกำเนิดใช้คำนวณประมาณการเท่านั้น · ยังไม่บันทึกลงฐานข้อมูลหรือใช้ควบคุมอุปกรณ์</p></div><span className="tag-neutral">{unconfirmedCount} ระบบไฟรอยืนยัน</span></div>
+    <div className="page-heading"><div><div className="eyebrow">ตั้งค่าได้โดยผู้เข้าชมทุกคน</div><h1>กำหนดค่าสถานี</h1><p>ข้อมูลระบบไฟฟ้า แบตเตอรี่สำรอง และเครื่องกำเนิดไฟฟ้ารายสถานี</p></div><span className="demo-tag"><i/>บันทึกส่วนกลาง</span></div>
+    {configError&&<div className="auth-error" role="alert">{configError}</div>}
+    <div className="health-banner station-config-notice"><span className="health-symbol"><Icon name="settings" size={21}/></span><div><strong>คอนฟิกชุดเดียวกันสำหรับผู้ใช้ที่อนุมัติแล้ว</strong><p>ข้อมูลบันทึกใน Supabase เพื่อใช้แสดงผลและคำนวณเท่านั้น · ไม่ส่งคำสั่งควบคุมอุปกรณ์</p></div><span className="tag-neutral">{unconfirmedCount} ระบบไฟรอยืนยัน</span></div>
     <div className="station-config-tabs" role="tablist" aria-label="หมวดการตั้งค่าสถานี">
       <button role="tab" aria-selected={activeTab === "electrical"} className={activeTab === "electrical" ? "active" : ""} onClick={() => setActiveTab("electrical")}>1 · ระบบไฟฟ้า</button>
       <button role="tab" aria-selected={activeTab === "battery"} className={activeTab === "battery" ? "active" : ""} onClick={() => setActiveTab("battery")}>2 · Battery Backup</button>
@@ -514,9 +535,11 @@ function SystemView() {
 }
 
 export default function Home() {
+  const isAdmin = true;
   const [view, setView] = useState<View>("overview");  const [historyStation, setHistoryStation] = useState("CM-001");
   const [stationData, setStationData] = useState<Station[]>(stations);
   const [liveData, setLiveData] = useState(false);
+  const [databaseOnline, setDatabaseOnline] = useState(false);
   const [selectedStation, setSelectedStation] = useState<Station | null>(null);
   const [alarms, setAlarms] = useState(initialAlarms);
   const [outageIncidents, setOutageIncidents] = useState<OutageIncident[]>([]);
@@ -524,11 +547,10 @@ export default function Home() {
   const [reminderNotice, setReminderNotice] = useState<{ title: string; message: string; stage: 30 | 60 } | null>(null);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const [stationConfigs, setStationConfigs] = useState<Record<string, StationElectricalConfig>>({});
-  const [stationConfigsLoaded, setStationConfigsLoaded] = useState(false);
   const [stationPowerConfigs, setStationPowerConfigs] = useState<Record<string, StationPowerConfig>>({});
-  const [stationPowerConfigsLoaded, setStationPowerConfigsLoaded] = useState(false);
+  const [configError, setConfigError] = useState("");
   const [mobileNav, setMobileNav] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
   useEffect(() => {
     try {
       const saved = localStorage.getItem("nt-power-outage-incidents-v1");
@@ -548,62 +570,76 @@ export default function Home() {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("nt-power-station-config-v1");
-      if (saved) {
-        const parsed = JSON.parse(saved) as Record<string, Partial<StationElectricalConfig>>;
-        const cleaned: Record<string, StationElectricalConfig> = {};
-        for (const [stationId, value] of Object.entries(parsed)) {
-          const threshold = Number(value.threshold);
-          cleaned[stationId] = {
-            phaseMode: value.phaseMode === "single" ? "single" : "three",
-            singlePhase: value.singlePhase === "F2" || value.singlePhase === "F3" ? value.singlePhase : "F1",
-            threshold: Number.isFinite(threshold) && threshold >= 1 && threshold <= 500 ? threshold : 150,
-            confirmed: value.confirmed === true,
-          };
+    if (!isAdmin) return;
+    let active = true;
+    const loadConfigs = async () => {
+      try {
+        const response = await fetch("/api/config", { cache: "no-store" });
+        const payload = await response.json() as { configs?: { station_id: string; electrical_config: Partial<StationElectricalConfig>; infrastructure_config: Partial<StationPowerConfig> }[]; error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "อ่านค่าคอนฟิกไม่สำเร็จ");
+        if (active) setConfigError("");
+        let rows = payload.configs ?? [];
+        if (rows.length === 0 && isAdmin) {
+          try {
+            const oldElectrical = JSON.parse(localStorage.getItem("nt-power-station-config-v1") ?? "{}") as Record<string, Partial<StationElectricalConfig>>;
+            const oldInfrastructure = JSON.parse(localStorage.getItem("nt-power-infrastructure-config-v1") ?? "{}") as Record<string, Partial<StationPowerConfig>>;
+            const oldStationIds = new Set([...Object.keys(oldElectrical), ...Object.keys(oldInfrastructure)]);
+            for (const stationId of oldStationIds) {
+              const saved = await fetch("/api/config", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ stationId, electrical: oldElectrical[stationId] ?? defaultStationConfig(), infrastructure: oldInfrastructure[stationId] ?? defaultStationPowerConfig() }),
+              });
+              if (!saved.ok) throw new Error("นำเข้าคอนฟิกเดิมไม่สำเร็จ");
+            }
+            if (oldStationIds.size) {
+              const refreshed = await fetch("/api/config", { cache: "no-store" });
+              if (!refreshed.ok) throw new Error("อ่านคอนฟิกหลังนำเข้าไม่สำเร็จ");
+              const refreshedPayload = await refreshed.json() as { configs?: typeof rows };
+              rows = refreshedPayload.configs ?? [];
+              localStorage.removeItem("nt-power-station-config-v1");
+              localStorage.removeItem("nt-power-infrastructure-config-v1");
+            }
+          } catch (error) {
+            if (active) setConfigError(error instanceof Error ? error.message : "นำเข้าคอนฟิกเดิมไม่สำเร็จ");
+          }
         }
-        setStationConfigs(cleaned);
-      }
-    } catch { /* Use default configuration if browser storage is unavailable. */ }
-    setStationConfigsLoaded(true);
-  }, []);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("nt-power-infrastructure-config-v1");
-      if (saved) {
-        const parsed = JSON.parse(saved) as Record<string, Partial<StationPowerConfig>>;
-        const cleaned: Record<string, StationPowerConfig> = {};
-        for (const [stationId, value] of Object.entries(parsed)) {
+        const electrical: Record<string, StationElectricalConfig> = {};
+        const infrastructure: Record<string, StationPowerConfig> = {};
+        for (const row of rows) {
+          const threshold = Number(row.electrical_config?.threshold);
+          electrical[row.station_id] = {
+            phaseMode: row.electrical_config?.phaseMode === "single" ? "single" : "three",
+            singlePhase: row.electrical_config?.singlePhase === "F2" || row.electrical_config?.singlePhase === "F3" ? row.electrical_config.singlePhase : "F1",
+            threshold: Number.isFinite(threshold) && threshold >= 1 && threshold <= 500 ? threshold : 150,
+            confirmed: row.electrical_config?.confirmed === true,
+          };
           const defaults = defaultStationPowerConfig();
-          cleaned[stationId] = Object.fromEntries(Object.keys(defaults).map(key => {
-            const numeric = Number(value[key as keyof StationPowerConfig]);
-            return [key, Number.isFinite(numeric) && numeric >= 0 ? numeric : defaults[key as keyof StationPowerConfig]];
+          infrastructure[row.station_id] = Object.fromEntries(Object.keys(defaults).map(key => {
+            const value = Number(row.infrastructure_config?.[key as keyof StationPowerConfig]);
+            return [key, Number.isFinite(value) && value >= 0 ? value : defaults[key as keyof StationPowerConfig]];
           })) as unknown as StationPowerConfig;
         }
-        setStationPowerConfigs(cleaned);
+        if (active) { setStationConfigs(electrical); setStationPowerConfigs(infrastructure); }
+      } catch (error) {
+        if (active) setConfigError(error instanceof Error ? error.message : "อ่านค่าคอนฟิกไม่สำเร็จ");
       }
-    } catch { /* Ignore invalid saved infrastructure settings and use safe defaults. */ }
-    setStationPowerConfigsLoaded(true);
-  }, []);
-  useEffect(() => {
-    if (!stationConfigsLoaded) return;
-    try { localStorage.setItem("nt-power-station-config-v1", JSON.stringify(stationConfigs)); } catch { /* Keep the current in-memory settings if storage is full. */ }
-  }, [stationConfigs, stationConfigsLoaded]);
-  useEffect(() => {
-    if (!stationPowerConfigsLoaded) return;
-    try { localStorage.setItem("nt-power-infrastructure-config-v1", JSON.stringify(stationPowerConfigs)); } catch { /* Keep current values in memory when browser storage is unavailable. */ }
-  }, [stationPowerConfigs, stationPowerConfigsLoaded]);
+    };
+    void loadConfigs();
+    const timer = window.setInterval(() => void loadConfigs(), 30_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [isAdmin]);
   useEffect(() => {
     let active = true;
     const refresh = async () => {
       try {
         const response = await fetch("/api/stations", { cache: "no-store" });
-        const payload = await response.json() as { stations?: Station[] };
+        const payload = await response.json() as { source?: string; stations?: Station[] };
+        if (active) setDatabaseOnline(response.ok && payload.source === "mariadb");
         if (active && response.ok && payload.stations?.length) {
           setStationData(payload.stations);
           setLiveData(true);
         }
-      } catch { if (active) setLiveData(false); }
+      } catch { if (active) { setDatabaseOnline(false); setLiveData(false); } }
     };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 30_000);
@@ -746,19 +782,38 @@ export default function Home() {
     }
     setAlarms(previous => [...previous.filter(item => item.id !== alarm.id), { ...alarm, acknowledgedBy: "คุณ", acknowledgedAt: displayTime }]);
   };
-  const saveStationConfig = (stationId: string, config: StationElectricalConfig) => {
-    setStationConfigs(previous => ({ ...previous, [stationId]: config }));
+  const persistConfig = async (stationId: string, electrical: StationElectricalConfig, infrastructure: StationPowerConfig) => {
+    setConfigError("");
+    try {
+      const response = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stationId, electrical, infrastructure }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "บันทึกคอนฟิกไม่สำเร็จ");
+      return true;
+    } catch (error) {
+      setConfigError(error instanceof Error ? error.message : "บันทึกคอนฟิกไม่สำเร็จ");
+      return false;
+    }
   };
-  const saveStationPowerConfig = (stationId: string, config: StationPowerConfig) => {
-    setStationPowerConfigs(previous => ({ ...previous, [stationId]: config }));
+  const saveStationConfig = async (stationId: string, config: StationElectricalConfig) => {
+    if (!isAdmin) return false;
+    const saved = await persistConfig(stationId, config, stationPowerConfigs[stationId] ?? defaultStationPowerConfig());
+    if (saved) setStationConfigs(previous => ({ ...previous, [stationId]: config }));
+    return saved;
   };
-  const active = navItems.find(x=>x.id===view)!;
+  const saveStationPowerConfig = async (stationId: string, config: StationPowerConfig) => {
+    if (!isAdmin) return false;
+    const saved = await persistConfig(stationId, stationConfigs[stationId] ?? defaultStationConfig(), config);
+    if (saved) setStationPowerConfigs(previous => ({ ...previous, [stationId]: config }));
+    return saved;
+  };
+  const visibleNavItems = navItems;
+  const active = navItems.find(x=>x.id===view) ?? navItems[0];
   const openStationHistory = (station: Station) => { setHistoryStation(station.id); setSelectedStation(null); setView("history"); };
   return <div className="app-shell" data-theme={theme}>
     {reminderNotice && <div className={`outage-reminder-toast stage-${reminderNotice.stage}`} role="alert"><div><strong>{reminderNotice.title}</strong><p>{reminderNotice.message}</p><small>DC แสดงค่าดิบจาก load_dc · หน่วยยังรอยืนยัน</small></div><button onClick={() => setReminderNotice(null)} aria-label="ปิดข้อความเตือน">×</button></div>}
-    <aside className={`sidebar ${mobileNav?"open":""}`}><div className="brand"><LogoMark/><span><strong>NT POWER</strong><small>CHIANG MAI</small></span><button className="icon-button mobile-close" onClick={()=>setMobileNav(false)}><Icon name="close"/></button></div><div className="workspace-switch"><div className="workspace-icon">CM</div><span><strong>เชียงใหม่</strong><small>Power Monitor</small></span><span className="workspace-chevron">⌄</span></div><div className="nav-caption">เมนูหลัก</div><nav>{navItems.map(item=><button key={item.id} className={`nav-link ${view===item.id?"active":""}`} onClick={()=>{setView(item.id);setMobileNav(false);setSelectedStation(null)}}><Icon name={item.icon} size={18}/><span>{item.label}</span>{item.id==="alarms"&&<b className="nav-count">{activeAlarms.filter(a=>!a.acknowledgedAt&&!a.resolvedAt).length}</b>}</button>)}</nav><div className="sidebar-bottom"><div className="monitor-status"><span className="monitor-dot"/><span><strong>{liveData?"เชื่อมต่อแล้ว":"ต้นแบบ"}</strong><small>{liveData?"MariaDB · อัปเดตทุก 30 วินาที":"ไม่มีการเชื่อมต่อข้อมูลจริง"}</small></span><span className="info-mark">i</span></div><div className="profile-row"><div className="profile-avatar">PK</div><span><strong>ผู้ดูแลระบบ</strong><small>{liveData?"ระบบข้อมูลจริง":"โหมดสาธิต"}</small></span><button className="more-button" aria-label="เมนูผู้ใช้">···</button></div></div></aside>
+    <aside className={`sidebar ${mobileNav?"open":""}`}><div className="brand"><LogoMark/><span><strong>NT POWER</strong><small>CHIANG MAI</small></span><button className="icon-button mobile-close" onClick={()=>setMobileNav(false)}><Icon name="close"/></button></div><div className="workspace-switch"><div className="workspace-icon">CM</div><span><strong>เชียงใหม่</strong><small>Power Monitor</small></span><span className="workspace-chevron">⌄</span></div><div className="nav-caption">เมนูหลัก</div><nav>{visibleNavItems.map(item=><button key={item.id} className={`nav-link ${view===item.id?"active":""}`} onClick={()=>{setView(item.id);setMobileNav(false);setSelectedStation(null)}}><Icon name={item.icon} size={18}/><span>{item.label}</span>{item.id==="alarms"&&<b className="nav-count">{activeAlarms.filter(a=>!a.acknowledgedAt&&!a.resolvedAt).length}</b>}</button>)}</nav><div className="sidebar-bottom"><div className="monitor-status"><span className="monitor-dot"/><span><strong>{liveData?"เชื่อมต่อแล้ว":"ต้นแบบ"}</strong><small>{liveData?"MariaDB · อัปเดตทุก 30 วินาที":"ไม่มีการเชื่อมต่อข้อมูลจริง"}</small></span><span className="info-mark">i</span></div><div className="profile-row"><div className="profile-avatar">D</div><span><strong>ผู้เข้าชม</strong><small>โหมดจัดการสาธารณะ</small></span></div></div></aside>
     {mobileNav&&<button className="nav-scrim" aria-label="ปิดเมนู" onClick={()=>setMobileNav(false)}/>}
-    <main className="main-area"><header className="topbar"><button className="mobile-menu icon-button" onClick={()=>setMobileNav(true)} aria-label="เปิดเมนู"><Icon name="menu"/></button><div className="breadcrumbs"><span>Power Monitor</span><span className="crumb-sep">/</span><strong>{active.label}</strong></div><div className="topbar-right"><span className="connection-state"><i/>{liveData?"MariaDB · Live":"Demo mode"}</span><span className="top-divider"/><button className="top-icon theme-toggle" onClick={()=>setTheme(theme==="light"?"dark":"light")} aria-label={theme==="light"?"เปิดโหมดมืด":"เปิดโหมดสว่าง"} title={theme==="light"?"เปิดโหมดมืด":"เปิดโหมดสว่าง"}><Icon name={theme==="light"?"moon":"sun"} size={18}/><span>{theme==="light"?"Dark":"Light"}</span></button><button className="top-icon" aria-label="การแจ้งเตือน"><Icon name="bell" size={19}/><i/></button><button className="top-avatar">PK</button></div></header><div className="content-area">{view==="overview"&&<Overview onSelect={setSelectedStation} onNavigate={setView} onAcknowledge={acknowledgeAlarm} stationData={stationData} live={liveData} alarms={activeAlarms}/ >}{view==="stations"&&<StationsView onSelect={setSelectedStation} stationData={stationData} live={liveData} alarms={activeAlarms}/ >}{view==="alarms"&&<AlarmsView alarms={activeAlarms} onAcknowledge={acknowledgeAlarm} live={liveData}/ >}{view==="history"&&<HistoryView initialStation={historyStation} stationData={stationData} live={liveData}/ >}{view==="station-settings"&&<StationSettingsView stationData={stationData} configs={stationConfigs} onSave={saveStationConfig} powerConfigs={stationPowerConfigs} onSavePower={saveStationPowerConfig}/ >}{view==="system"&&<SystemView/>}<footer>NT Chiang Mai Power Monitor <span>·</span> {liveData?"ข้อมูล MariaDB · อัปเดตทุก 30 วินาที":"Prototype · ข้อมูลตัวอย่างจนกว่าจะเชื่อมต่อฐานข้อมูลได้"}</footer></div></main>
-     {selectedStation&&<StationDetail station={selectedStation} live={liveData} onClose={()=>setSelectedStation(null)} onHistory={openStationHistory}/>}
+    <main className="main-area"><header className="topbar"><button className="mobile-menu icon-button" onClick={()=>setMobileNav(true)} aria-label="เปิดเมนู"><Icon name="menu"/></button><div className="breadcrumbs"><span>Power Monitor</span><span className="crumb-sep">/</span><strong>{active.label}</strong></div><div className="topbar-right"><span className={`connection-state ${databaseOnline?"is-live":"is-demo"}`} aria-label={databaseOnline?"ระบบเชื่อมต่อ MariaDB แล้ว":"โหมดสาธิต ยังไม่เชื่อมต่อ MariaDB"} title={databaseOnline?"ระบบเชื่อมต่อ MariaDB แล้ว":"โหมดสาธิต ยังไม่เชื่อมต่อ MariaDB"}><i/><span>{databaseOnline?(liveData?"MariaDB · Live":"MariaDB · Online"):"Demo mode"}</span></span><TopbarClock/><span className="top-divider"/><button className="top-icon theme-toggle" onClick={()=>setTheme(theme==="light"?"dark":"light")} aria-label={theme==="light"?"เปิดโหมดมืด":"เปิดโหมดสว่าง"} title={theme==="light"?"เปิดโหมดมืด":"เปิดโหมดสว่าง"}><Icon name={theme==="light"?"moon":"sun"} size={18}/><span>{theme==="light"?"Dark":"Light"}</span></button><button className="top-icon" aria-label="การแจ้งเตือน"><Icon name="bell" size={19}/><i/></button></div></header><div className="content-area">{view==="overview"&&<Overview onSelect={setSelectedStation} onNavigate={setView} onAcknowledge={acknowledgeAlarm} stationData={stationData} live={liveData} alarms={activeAlarms} selectedStation={selectedStation} onCloseStation={() => setSelectedStation(null)} onHistory={openStationHistory}/ >}{view==="stations"&&<StationsView onSelect={setSelectedStation} stationData={stationData} live={liveData} alarms={activeAlarms}/ >}{view==="alarms"&&<AlarmsView alarms={activeAlarms} onAcknowledge={acknowledgeAlarm} live={liveData}/ >}{view==="history"&&<HistoryView initialStation={historyStation} stationData={stationData} live={liveData}/ >}{view==="station-settings"&&<StationSettingsView stationData={stationData} configs={stationConfigs} onSave={saveStationConfig} powerConfigs={stationPowerConfigs} onSavePower={saveStationPowerConfig} configError={configError}/ >}{view==="system"&&<SystemView/>}{view==="users"&&<AdminUsersView/>}<footer>NT Chiang Mai Power Monitor <span>·</span> {liveData?"ข้อมูล MariaDB · อัปเดตทุก 30 วินาที":"Prototype · ข้อมูลตัวอย่างจนกว่าจะเชื่อมต่อฐานข้อมูลได้"}</footer></div></main>
+     {selectedStation&&view !== "overview"&&<StationDetail station={selectedStation} live={liveData} onClose={()=>setSelectedStation(null)} onHistory={openStationHistory}/>}
   </div>;
 }

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "bootstrap:users": "node --env-file=.env.bootstrap scripts/bootstrap-users.mjs"
   },
   "dependencies": {
     "mysql2": "^3.24.6",
