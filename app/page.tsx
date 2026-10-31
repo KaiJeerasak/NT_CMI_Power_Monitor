@@ -230,8 +230,7 @@ function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: bool
   const sortedStations = [...stations].sort((a, b) => (a.loadDc ?? Number.POSITIVE_INFINITY) - (b.loadDc ?? Number.POSITIVE_INFINITY));
   const values = stations.map(station => station.loadDc).filter((value): value is number => value !== null && Number.isFinite(value));
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-  const stationColumns = `repeat(${sortedStations.length}, minmax(38px, 1fr))`;
-  const plotMinWidth = `${Math.max(100, sortedStations.length * 44)}px`;
+  const stationColumns = `repeat(${sortedStations.length}, minmax(0, 1fr))`;
   const lowValues = values.filter(value => value < 48);
   const lowestBelowReference = lowValues.length ? Math.min(...lowValues) : 48;
   const barColor = (value: number | null) => {
@@ -248,7 +247,7 @@ function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: bool
     <div className="dc-voltage-legend"><span><i className="dc-legend-normal"/>ปกติ ≥48 V</span><span><i className="dc-legend-low"/>แรงดันต่ำลง</span><span><i className="dc-legend-critical"/>ค่าต่ำสุดในกลุ่ม</span><span><i className="dc-legend-no-data"/>ไม่มีข้อมูล</span></div>
     {sortedStations.length ? <div className="dc-voltage-plot-layout">
       <div className="dc-voltage-y-axis" aria-hidden="true"><span className="dc-y-top">60</span><span className="dc-y-reference">48</span><span className="dc-y-bottom">0</span></div>
-      <div className="dc-voltage-plot-scroll"><div className="dc-voltage-plot" style={{ gridTemplateColumns: stationColumns, minWidth: plotMinWidth }}>
+      <div className="dc-voltage-plot-scroll"><div className="dc-voltage-plot" style={{ gridTemplateColumns: stationColumns }}>
         <div className="dc-voltage-stage"><div className="dc-voltage-column-grid" style={{ gridTemplateColumns: stationColumns }} role="list" aria-label="แรงดัน DC ของทุกสถานี">
           {sortedStations.map(station => {
             const value = station.loadDc;
