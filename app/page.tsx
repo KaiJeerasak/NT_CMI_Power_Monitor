@@ -230,6 +230,8 @@ function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: bool
   const sortedStations = [...stations].sort((a, b) => (a.loadDc ?? Number.POSITIVE_INFINITY) - (b.loadDc ?? Number.POSITIVE_INFINITY));
   const values = stations.map(station => station.loadDc).filter((value): value is number => value !== null && Number.isFinite(value));
   const average = values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+  const stationColumns = `repeat(${sortedStations.length}, minmax(38px, 1fr))`;
+  const plotMinWidth = `${Math.max(100, sortedStations.length * 44)}px`;
   const lowValues = values.filter(value => value < 48);
   const lowestBelowReference = lowValues.length ? Math.min(...lowValues) : 48;
   const barColor = (value: number | null) => {
@@ -246,8 +248,8 @@ function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: bool
     <div className="dc-voltage-legend"><span><i className="dc-legend-normal"/>ปกติ ≥48 V</span><span><i className="dc-legend-low"/>แรงดันต่ำลง</span><span><i className="dc-legend-critical"/>ค่าต่ำสุดในกลุ่ม</span></div>
     {sortedStations.length ? <div className="dc-voltage-plot-layout">
       <div className="dc-voltage-y-axis" aria-hidden="true"><span className="dc-y-top">60</span><span className="dc-y-reference">48</span><span className="dc-y-bottom">0</span></div>
-      <div className="dc-voltage-plot-scroll"><div className="dc-voltage-plot" style={{ gridTemplateColumns: `repeat(${sortedStations.length}, minmax(38px, 1fr))`, minWidth: `${Math.max(100, sortedStations.length * 44)}px` }}>
-        <div className="dc-voltage-stage"><div className="dc-voltage-column-grid" role="list" aria-label="แรงดัน DC ของทุกสถานี">
+      <div className="dc-voltage-plot-scroll"><div className="dc-voltage-plot" style={{ gridTemplateColumns: stationColumns, minWidth: plotMinWidth }}>
+        <div className="dc-voltage-stage"><div className="dc-voltage-column-grid" style={{ gridTemplateColumns: stationColumns }} role="list" aria-label="แรงดัน DC ของทุกสถานี">
           {sortedStations.map(station => {
             const value = station.loadDc;
             const height = value === null ? 0 : Math.min(100, Math.max(0, value / 60 * 100));
@@ -258,7 +260,7 @@ function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: bool
             </div>;
           })}
         </div><span className="dc-voltage-reference-line" aria-hidden="true"/><span className="dc-voltage-baseline" aria-hidden="true"/></div>
-        <div className="dc-voltage-x-axis" aria-hidden="true">{sortedStations.map(station=><span key={station.id} title={station.name}>{station.name}</span>)}</div>
+        <div className="dc-voltage-x-axis" style={{ gridTemplateColumns: stationColumns }} aria-hidden="true">{sortedStations.map(station=><span key={station.id} title={station.name}>{station.name}</span>)}</div>
       </div></div>
     </div> : <div className="dc-voltage-empty">ยังไม่มีข้อมูลสถานี</div>}
     <p className="dc-voltage-note">ค่าตั้งแต่ 48 VDC ขึ้นไปเป็นสีเขียว · ค่าที่ต่ำกว่า 48 VDC จะไล่สีผ่านเหลืองและส้ม จนค่าต่ำสุดในกลุ่มเป็นสีแดง · สีนี้ใช้ช่วยสังเกต ไม่ใช่ค่า Alarm</p>
