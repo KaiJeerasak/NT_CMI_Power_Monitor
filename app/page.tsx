@@ -15,6 +15,35 @@ type StationPowerConfig = {
 type StationConfigTab = "electrical" | "battery" | "generator";
 type PendingStationSave = { kind: StationConfigTab; stationId: string; stationName: string; electricalConfig?: StationElectricalConfig; powerConfig?: StationPowerConfig };
 type OutageIncident = { id: string; stationId: string; stationName: string; startedAt: string; startDc: number | null; latestDc: number | null; latestDcAt: string | null; phaseList: string[]; healthyPolls: number; acknowledgedAt?: string; resolvedAt?: string; reminder30Sent: boolean; escalation60Sent: boolean; };
+type NotificationSound = "bell" | "double" | "siren" | "off";
+
+function playNotificationSound(contextRef: { current: AudioContext | null }, sound: Exclude<NotificationSound, "off">) {
+  if (typeof window === "undefined" || !window.AudioContext) return;
+  const context = contextRef.current ?? (contextRef.current = new window.AudioContext());
+  void context.resume();
+  const now = context.currentTime;
+  const tones = sound === "bell"
+    ? [{ start: 0, duration: 0.32, from: 880, to: 660 }]
+    : sound === "double"
+      ? [{ start: 0, duration: 0.16, from: 740, to: 740 }, { start: 0.22, duration: 0.2, from: 880, to: 880 }]
+      : [{ start: 0, duration: 0.32, from: 560, to: 880 }, { start: 0.34, duration: 0.32, from: 880, to: 560 }];
+  tones.forEach(tone => {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const startsAt = now + tone.start;
+    oscillator.type = sound === "siren" ? "triangle" : "sine";
+    oscillator.frequency.setValueAtTime(tone.from, startsAt);
+    oscillator.frequency.linearRampToValueAtTime(tone.to, startsAt + tone.duration);
+    gain.gain.setValueAtTime(0.0001, startsAt);
+    gain.gain.linearRampToValueAtTime(0.12, startsAt + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startsAt + tone.duration);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start(startsAt);
+    oscillator.stop(startsAt + tone.duration);
+  });
+}
+
 const navItems: { id: View; label: string; icon: string }[] = [
   { id: "overview", label: "ภาพรวม", icon: "grid" },
   { id: "stations", label: "สถานีและอุปกรณ์", icon: "pin" },
@@ -657,6 +686,10 @@ function Dashboard() {
   const [stationPowerConfigs, setStationPowerConfigs] = useState<Record<string, StationPowerConfig>>({});
   const [configError, setConfigError] = useState("");
   const [mobileNav, setMobileNav] = useState(false);
+  const [notificationSettingsOpen, setNotificationSettingsOpen] = useState(false);
+  const [notificationSound, setNotificationSound] = useState<NotificationSound>("double");
+  const notificationAudioRef = useRef<AudioContext | null>(null);
+  const previousUnresolvedAlarmIds = useRef<Set<string> | null>(null);
   const [theme, setTheme] = useState<"light" | "dark">("dark");
   useEffect(() => {
     try {
@@ -874,6 +907,19 @@ function Dashboard() {
     return previous && !alarm.acknowledgedAt ? { ...alarm, acknowledgedBy: previous.acknowledgedBy, acknowledgedAt: previous.acknowledgedAt } : alarm;
   }), [alarmCandidates, alarms]);
   const unresolvedAlarmCount = activeAlarms.filter(alarm => !alarm.resolvedAt).length;
+  const unlockNotificationAudio = () => {
+    if (typeof window === "undefined" || !window.AudioContext) return;
+    notificationAudioRef.current ??= new window.AudioContext();
+    void notificationAudioRef.current.resume();
+  };
+  useEffect(() => {
+    const unresolvedIds = new Set(activeAlarms.filter(alarm => !alarm.resolvedAt).map(alarm => alarm.id));
+    const previousIds = previousUnresolvedAlarmIds.current;
+    if (previousIds && notificationSound !== "off" && [...unresolvedIds].some(id => !previousIds.has(id))) {
+      if (notificationAudioRef.current) playNotificationSound(notificationAudioRef, notificationSound);
+    }
+    previousUnresolvedAlarmIds.current = unresolvedIds;
+  }, [activeAlarms, notificationSound]);
   useEffect(() => {
     const activeIds = new Set(alarmCandidates.map(alarm => alarm.id));
     setAlarms(previous => {
@@ -921,7 +967,7 @@ function Dashboard() {
     {reminderNotice && <div className={`outage-reminder-toast stage-${reminderNotice.stage}`} role="alert"><div><strong>{reminderNotice.title}</strong><p>{reminderNotice.message}</p><small>DC แสดงค่าดิบจาก load_dc · หน่วยยังรอยืนยัน</small></div><button onClick={() => setReminderNotice(null)} aria-label="ปิดข้อความเตือน">×</button></div>}
     <aside className={`sidebar ${mobileNav?"open":""}`}><div className="brand"><LogoMark/><span><strong>NT POWER</strong><small>CHIANG MAI</small></span><button className="icon-button mobile-close" onClick={()=>setMobileNav(false)}><Icon name="close"/></button></div><div className="workspace-switch"><div className="workspace-icon">CM</div><span><strong>เชียงใหม่</strong><small>Power Monitor</small></span><span className="workspace-chevron">⌄</span></div><div className="nav-caption">เมนูหลัก</div><nav>{visibleNavItems.map(item=><button key={item.id} className={`nav-link ${view===item.id?"active":""}`} onClick={()=>{setView(item.id);setMobileNav(false);setSelectedStation(null)}}><Icon name={item.icon} size={18}/><span>{item.label}</span>{item.id==="alarms"&&<b className="nav-count">{activeAlarms.filter(a=>!a.acknowledgedAt&&!a.resolvedAt).length}</b>}</button>)}</nav><div className="sidebar-bottom"><div className="monitor-status"><span className="monitor-dot"/><span><strong>{liveData?"เชื่อมต่อแล้ว":"ต้นแบบ"}</strong><small>{liveData?"MariaDB · อัปเดตทุก 30 วินาที":"ไม่มีการเชื่อมต่อข้อมูลจริง"}</small></span><span className="info-mark">i</span></div><div className="profile-row"><div className="profile-avatar">{profile.username.slice(0, 1).toUpperCase()}</div><span><strong>{profile.username}</strong><small>{isAdmin ? "Admin" : "ผู้ใช้งาน"}</small></span><button className="profile-logout" onClick={() => void logout()}>ออกจากระบบ</button></div></div></aside>
     {mobileNav&&<button className="nav-scrim" aria-label="ปิดเมนู" onClick={()=>setMobileNav(false)}/>}
-    <main className="main-area"><header className="topbar"><button className="mobile-menu icon-button" onClick={()=>setMobileNav(true)} aria-label="เปิดเมนู"><Icon name="menu"/></button><div className="breadcrumbs"><span>Power Monitor</span><span className="crumb-sep">/</span><strong>{active.label}</strong></div><div className="topbar-right"><span className={`connection-state ${databaseOnline?"is-live":"is-demo"}`} aria-label={databaseOnline?"ระบบเชื่อมต่อ MariaDB แล้ว":"โหมดสาธิต ยังไม่เชื่อมต่อ MariaDB"} title={databaseOnline?"ระบบเชื่อมต่อ MariaDB แล้ว":"โหมดสาธิต ยังไม่เชื่อมต่อ MariaDB"}><i/><span>{databaseOnline?(liveData?"MariaDB · Live":"MariaDB · Online"):"Demo mode"}</span></span><TopbarClock/><span className="top-divider"/><button className="top-icon theme-toggle" onClick={()=>setTheme(theme==="light"?"dark":"light")} aria-label={theme==="light"?"เปิดโหมดมืด":"เปิดโหมดสว่าง"} title={theme==="light"?"เปิดโหมดมืด":"เปิดโหมดสว่าง"}><Icon name={theme==="light"?"moon":"sun"} size={18}/><span>{theme==="light"?"Dark":"Light"}</span></button><button className="top-icon notification-button" aria-label={unresolvedAlarmCount ? `เปิดศูนย์แจ้งเตือน มี ${unresolvedAlarmCount} รายการที่ยังไม่แก้ไข` : "เปิดศูนย์แจ้งเตือน ไม่มีรายการค้าง"} title="เปิดศูนย์แจ้งเตือน" onClick={()=>{setView("alarms");setMobileNav(false);setSelectedStation(null)}}><Icon name="bell" size={19}/>{unresolvedAlarmCount > 0 && <span className="notification-count">{unresolvedAlarmCount > 99 ? "99+" : unresolvedAlarmCount}</span>}</button></div></header><div className="content-area">{view==="overview"&&<Overview onSelect={setSelectedStation} onNavigate={setView} onAcknowledge={acknowledgeAlarm} stationData={stationData} live={liveData} alarms={activeAlarms} selectedStation={selectedStation} onCloseStation={() => setSelectedStation(null)} onHistory={openStationHistory}/ >}{view==="stations"&&<StationsView onSelect={setSelectedStation} stationData={stationData} live={liveData} alarms={activeAlarms}/ >}{view==="alarms"&&<AlarmsView alarms={activeAlarms} onAcknowledge={acknowledgeAlarm} live={liveData}/ >}{view==="history"&&<HistoryView initialStation={historyStation} stationData={stationData} live={liveData}/ >}{view==="station-settings"&&<StationSettingsView stationData={stationData} configs={stationConfigs} onSave={saveStationConfig} powerConfigs={stationPowerConfigs} onSavePower={saveStationPowerConfig} configError={configError}/ >}{view==="system"&&<SystemView/>}{view==="users"&&<AdminUsersView/>}<footer>NT Chiang Mai Power Monitor <span>·</span> {liveData?"ข้อมูล MariaDB · อัปเดตทุก 30 วินาที":"Prototype · ข้อมูลตัวอย่างจนกว่าจะเชื่อมต่อฐานข้อมูลได้"}</footer></div></main>
+    <main className="main-area"><header className="topbar"><button className="mobile-menu icon-button" onClick={()=>setMobileNav(true)} aria-label="เปิดเมนู"><Icon name="menu"/></button><div className="breadcrumbs"><span>Power Monitor</span><span className="crumb-sep">/</span><strong>{active.label}</strong></div><div className="topbar-right"><span className={`connection-state ${databaseOnline?"is-live":"is-demo"}`} aria-label={databaseOnline?"ระบบเชื่อมต่อ MariaDB แล้ว":"โหมดสาธิต ยังไม่เชื่อมต่อ MariaDB"} title={databaseOnline?"ระบบเชื่อมต่อ MariaDB แล้ว":"โหมดสาธิต ยังไม่เชื่อมต่อ MariaDB"}><i/><span>{databaseOnline?(liveData?"MariaDB · Live":"MariaDB · Online"):"Demo mode"}</span></span><TopbarClock/><span className="top-divider"/><button className="top-icon theme-toggle" onClick={()=>setTheme(theme==="light"?"dark":"light")} aria-label={theme==="light"?"เปิดโหมดมืด":"เปิดโหมดสว่าง"} title={theme==="light"?"เปิดโหมดมืด":"เปิดโหมดสว่าง"}><Icon name={theme==="light"?"moon":"sun"} size={18}/><span>{theme==="light"?"Dark":"Light"}</span></button><button className="top-icon notification-button" aria-label={unresolvedAlarmCount ? `เปิดศูนย์แจ้งเตือน มี ${unresolvedAlarmCount} รายการที่ยังไม่แก้ไข` : "เปิดศูนย์แจ้งเตือน ไม่มีรายการค้าง"} title="เปิดศูนย์แจ้งเตือน" onClick={()=>{setView("alarms");setMobileNav(false);setSelectedStation(null)}}><Icon name="bell" size={19}/>{unresolvedAlarmCount > 0 && <span className="notification-count">{unresolvedAlarmCount > 99 ? "99+" : unresolvedAlarmCount}</span>}</button><div className="notification-settings"><button className="top-icon notification-settings-toggle" aria-label="ตั้งค่าเสียงแจ้งเตือน" title="ตั้งค่าเสียงแจ้งเตือน" aria-expanded={notificationSettingsOpen} onClick={()=>setNotificationSettingsOpen(open=>!open)}><Icon name="settings" size={17}/></button>{notificationSettingsOpen && <div className="notification-settings-popover" role="dialog" aria-label="ตั้งค่าเสียงแจ้งเตือน"><label htmlFor="notification-sound">เสียงแจ้งเตือน<select id="notification-sound" value={notificationSound} onChange={event=>{const sound=event.target.value as NotificationSound;setNotificationSound(sound);if(sound!=="off")unlockNotificationAudio();}}><option value="double">เสียงเตือนสองจังหวะ</option><option value="bell">กระดิ่งสั้น</option><option value="siren">ไซเรน</option><option value="off">ปิดเสียง</option></select></label><button type="button" className="button button-quiet notification-preview-button" disabled={notificationSound==="off"} onClick={()=>playNotificationSound(notificationAudioRef,notificationSound as Exclude<NotificationSound,"off">)}>ลองฟังเสียง</button><p>เล่นเสียงเมื่อพบเคสที่ยังไม่แก้ไขรายการใหม่</p></div>}</div></div></header><div className="content-area">{view==="overview"&&<Overview onSelect={setSelectedStation} onNavigate={setView} onAcknowledge={acknowledgeAlarm} stationData={stationData} live={liveData} alarms={activeAlarms} selectedStation={selectedStation} onCloseStation={() => setSelectedStation(null)} onHistory={openStationHistory}/ >}{view==="stations"&&<StationsView onSelect={setSelectedStation} stationData={stationData} live={liveData} alarms={activeAlarms}/ >}{view==="alarms"&&<AlarmsView alarms={activeAlarms} onAcknowledge={acknowledgeAlarm} live={liveData}/ >}{view==="history"&&<HistoryView initialStation={historyStation} stationData={stationData} live={liveData}/ >}{view==="station-settings"&&<StationSettingsView stationData={stationData} configs={stationConfigs} onSave={saveStationConfig} powerConfigs={stationPowerConfigs} onSavePower={saveStationPowerConfig} configError={configError}/ >}{view==="system"&&<SystemView/>}{view==="users"&&<AdminUsersView/>}<footer>NT Chiang Mai Power Monitor <span>·</span> {liveData?"ข้อมูล MariaDB · อัปเดตทุก 30 วินาที":"Prototype · ข้อมูลตัวอย่างจนกว่าจะเชื่อมต่อฐานข้อมูลได้"}</footer></div></main>
      {selectedStation&&view !== "overview"&&<StationDetail station={selectedStation} live={liveData} onClose={()=>setSelectedStation(null)} onHistory={openStationHistory}/>}
   </div>;
 }
