@@ -249,12 +249,13 @@ function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: bool
       <div className="dc-voltage-y-axis" aria-hidden="true"><span className="dc-y-top">60</span><span className="dc-y-reference">48</span><span className="dc-y-bottom">0</span></div>
       <div className="dc-voltage-plot-scroll"><div className="dc-voltage-plot" style={{ gridTemplateColumns: stationColumns }}>
         <div className="dc-voltage-stage"><div className="dc-voltage-column-grid" style={{ gridTemplateColumns: stationColumns }} role="list" aria-label="แรงดัน DC ของทุกสถานี">
-          {sortedStations.map(station => {
+          {sortedStations.map((station, index) => {
             const value = station.loadDc;
             const height = value === null ? "3px" : `${Math.min(100, Math.max(0, value / 60 * 100))}%`;
             const color = station.status === "offline" ? "#8994a4" : barColor(value);
             const label = `${station.name}: ${value === null ? "ไม่มีข้อมูลแรงดัน DC" : `${value.toFixed(1)} VDC`}${station.status === "offline" ? " · ออฟไลน์" : ""} · อัปเดต ${station.updated}`;
-            return <div className={`dc-voltage-column${station.status === "offline" ? " is-offline" : ""}`} role="listitem" tabIndex={0} key={station.id} aria-label={label}>
+            const tooltipSide = index < sortedStations.length / 2 ? " tooltip-left" : " tooltip-right";
+            return <div className={`dc-voltage-column${station.status === "offline" ? " is-offline" : ""}${tooltipSide}`} role="listitem" tabIndex={0} key={station.id} aria-label={label}>
               <span className={`dc-voltage-bar${value === null ? " is-no-data" : ""}`}><i style={{ height, backgroundColor: color }}/></span>
               <span className="dc-voltage-tooltip" role="tooltip"><strong>{station.name}</strong><b>{value === null ? "ไม่มีข้อมูล" : `${value.toFixed(1)} VDC`}</b><small>{station.status === "offline" ? "ออฟไลน์" : "สถานะออนไลน์"} · อัปเดต {station.updated}</small></span>
             </div>;
