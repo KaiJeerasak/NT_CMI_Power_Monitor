@@ -59,9 +59,12 @@ export function ChiangMaiMap({ onSelect, stationData = stations, alarmData = ini
   const placeholder = useRef<HTMLDivElement>(null);
   const map = useRef<LongdoMapInstance | null>(null);
   const onSelectRef = useRef(onSelect);
-  const [sdkReady, setSdkReady] = useState(false);
+  const stationDataRef = useRef(stationData);
+  const alarmDataRef = useRef(alarmData);
   const [error, setError] = useState(false);
-  onSelectRef.current = onSelect;
+  useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { stationDataRef.current = stationData; }, [stationData]);
+  useEffect(() => { alarmDataRef.current = alarmData; }, [alarmData]);
 
   const initialize = useCallback(() => {
     if (!key || !placeholder.current || !window.longdo || map.current) return;
@@ -74,19 +77,21 @@ export function ChiangMaiMap({ onSelect, stationData = stations, alarmData = ini
         lastView: false,
       });
       const markers = new Map<LongdoMarker, Station>();
-      stationData.forEach((station) => {
-        const hasVoltageAlarm = alarmData.some(alarm => alarm.stationId === station.id && alarm.id.startsWith("VOLTAGE-LOW-") && !alarm.resolvedAt);
+      const currentStations = stationDataRef.current;
+      const currentAlarms = alarmDataRef.current;
+      currentStations.forEach((station) => {
+        const hasVoltageAlarm = currentAlarms.some(alarm => alarm.stationId === station.id && alarm.id.startsWith("VOLTAGE-LOW-") && !alarm.resolvedAt);
         const markerStatus = station.status === "offline" ? "offline" : hasVoltageAlarm ? "fault" : station.status;
         const marker = new window.longdo!.Marker(stationLocation(station), {
           clickable: true,
-          icon: { html: markerIconHtml(markerStatus, stationHoverTip(station, alarmData)), offset: { x: 20, y: 20 }, size: { width: 40, height: 40 } },
+          icon: { html: markerIconHtml(markerStatus, stationHoverTip(station, currentAlarms)), offset: { x: 20, y: 20 }, size: { width: 40, height: 40 } },
           style: "background:transparent;border:0;border-radius:0;box-shadow:none;padding:0;",
         });
         markers.set(marker, station);
         instance.Overlays.add(marker);
       });
-      const alertLocations = stationData
-        .filter(station => station.status !== "normal" || alarmData.some(alarm => alarm.stationId === station.id && !alarm.resolvedAt))
+      const alertLocations = currentStations
+        .filter(station => station.status !== "normal" || currentAlarms.some(alarm => alarm.stationId === station.id && !alarm.resolvedAt))
         .map(stationLocation);
       if (alertLocations.length === 1) {
         instance.location(alertLocations[0], false);
@@ -106,13 +111,10 @@ export function ChiangMaiMap({ onSelect, stationData = stations, alarmData = ini
       });
       map.current = instance;
       setError(false);
-      setSdkReady(true);
     } catch {
       setError(true);
     }
   }, []);
-
-  useEffect(() => { if (sdkReady) initialize(); }, [sdkReady, initialize]);
 
   if (!key) return <div className="map-canvas map-unconfigured">
     <div className="map-setup-card"><strong>แผนที่ Longdo พร้อมตั้งค่า</strong><span>เพิ่ม NEXT_PUBLIC_LONGDO_MAP_KEY ในไฟล์ .env.local แล้วรีสตาร์ตระบบ</span><small>ขณะนี้ยังไม่มี API key จึงยังไม่เรียกใช้บริการแผนที่</small></div>
