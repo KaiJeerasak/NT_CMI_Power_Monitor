@@ -313,6 +313,8 @@ function DcVoltageBarChart({ stations, live }: { stations: Station[]; live: bool
 }
 
 function HistoryTrendChart({ rows, metric, gapMinutes = 15 }: { rows: HistoryRecord[]; metric: "voltage" | "temperature" | "dc"; gapMinutes?: number }) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+  const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0, width: 0 });
   const voltage = metric === "voltage";
   const temperature = metric === "temperature";
   const series: { key: keyof HistoryRecord; label: string; color: string }[] = voltage
@@ -327,6 +329,22 @@ function HistoryTrendChart({ rows, metric, gapMinutes = 15 }: { rows: HistoryRec
   const maxValue = voltage ? Math.max(300, Math.ceil(Math.max(...values, 0) / 50) * 50) : temperature ? Math.max(50, Math.ceil(Math.max(...values, 0) / 5) * 5 + 5) : Math.max(minValue + 10, Math.ceil(Math.max(...values, 0) / 10) * 10);
   const yFor = (value:number) => 90 - Math.min(1, Math.max(0, (value - minValue) / (maxValue - minValue || 1))) * 78;
   const xFor = (time:number) => 2 + (maxTime === minTime ? 50 : (time - minTime) / (maxTime - minTime) * 96);
+  const handleChartPointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    const svgRect = event.currentTarget.getBoundingClientRect();
+    const wrapRect = event.currentTarget.parentElement?.getBoundingClientRect();
+    if (!svgRect.width || !wrapRect) return;
+    const pointerX = ((event.clientX - svgRect.left) / svgRect.width) * 100;
+    let nearestIndex: number | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    chronological.forEach((row, index) => {
+      const time = Date.parse(row.dt.replace(" ", "T"));
+      if (!Number.isFinite(time)) return;
+      const distance = Math.abs(xFor(time) - pointerX);
+      if (distance < nearestDistance) { nearestDistance = distance; nearestIndex = index; }
+    });
+    setHoverIndex(nearestIndex);
+    setHoverPosition({ x: event.clientX - wrapRect.left, y: event.clientY - wrapRect.top, width: wrapRect.width });
+  };
   const makePaths = (key:keyof HistoryRecord) => {
     const paths: string[] = [];
     let segment: string[] = [];
@@ -344,10 +362,13 @@ function HistoryTrendChart({ rows, metric, gapMinutes = 15 }: { rows: HistoryRec
     if (segment.length) paths.push(segment.join(" "));
     return paths;
   };
+  const hoveredRow = hoverIndex === null ? undefined : chronological[hoverIndex];
+  const hoveredTime = hoveredRow ? Date.parse(hoveredRow.dt.replace(" ", "T")) : Number.NaN;
+  const hoveredX = Number.isFinite(hoveredTime) ? xFor(hoveredTime) : 0;
   const timeLabel = (row: HistoryRecord | undefined) => row ? row.dt.slice(5,16).replace("T", " ") : "—";
   return <section className={`panel history-chart-panel ${voltage ? "voltage-wide" : ""}`}>
     <div className="panel-heading"><div><h2>{voltage ? "แนวโน้มแรงดันไฟฟ้า" : temperature ? "แนวโน้มอุณหภูมิ" : "แนวโน้ม DC"}</h2><p>{voltage ? "แรงดัน 3 เฟสและ Load AC · V" : temperature ? "อุณหภูมิ · °C" : "load_dc · VDC"} · {rows.length.toLocaleString("th-TH")} จุดข้อมูล</p></div><div className="history-chart-legend">{series.map(line=><span key={line.label}><i style={{background:line.color}}/>{line.label}</span>)}</div></div>
-    {values.length ? <div className="history-chart-wrap"><div className="history-chart-y-labels"><span>{maxValue}</span><span>{Math.round(minValue + (maxValue-minValue)*.66)}</span><span>{Math.round(minValue + (maxValue-minValue)*.33)}</span><span>{minValue}</span></div><svg className="history-chart-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={voltage ? "กราฟแรงดัน F1 F2 F3 และ Load AC ตามเวลา" : temperature ? "กราฟอุณหภูมิตามเวลา" : "กราฟแรงดัน DC ตามเวลา"}>{[12,38,64,90].map(y=><line key={y} x1="0" x2="100" y1={y} y2={y} className="chart-gridline"/>)}{series.map(line=>makePaths(line.key).map((path,index)=><polyline key={`${line.label}-${index}`} points={path} fill="none" stroke={line.color} strokeWidth="1.35" vectorEffect="non-scaling-stroke"/>))}{series.flatMap(line=>chronological.map((row,index)=>{const time=Date.parse(row.dt.replace(" ","T"));const value=row[line.key];if(!Number.isFinite(time)||typeof value!=="number"||!Number.isFinite(value))return null;const unit=voltage?"V":temperature?"°C":"VDC";return <circle className="history-chart-hit-point" key={`${line.label}-${row.dt}-${index}`} cx={xFor(time)} cy={yFor(value)} r="4.5" fill={line.color} fillOpacity="0.03" stroke="transparent"><title>{`${row.dt} · ${line.label}: ${value.toFixed(1)} ${unit}`}</title></circle>}))}</svg><div className="history-chart-x-labels"><span>{timeLabel(chronological[0])}</span><span>{timeLabel(chronological[Math.floor((chronological.length-1)/2)])}</span><span>{timeLabel(chronological[chronological.length-1])}</span></div></div> : <div className="history-chart-empty">ยังไม่มีค่าที่ใช้วาดกราฟในช่วงเวลานี้</div>}
+    {values.length ? <div className="history-chart-wrap"><div className="history-chart-y-labels"><span>{maxValue}</span><span>{Math.round(minValue + (maxValue-minValue)*.66)}</span><span>{Math.round(minValue + (maxValue-minValue)*.33)}</span><span>{minValue}</span></div><svg className="history-chart-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={voltage ? "กราฟแรงดัน F1 F2 F3 และ Load AC ตามเวลา" : temperature ? "กราฟอุณหภูมิตามเวลา" : "กราฟแรงดัน DC ตามเวลา"} onPointerMove={handleChartPointerMove} onPointerLeave={()=>setHoverIndex(null)}>{[12,38,64,90].map(y=><line key={y} x1="0" x2="100" y1={y} y2={y} className="chart-gridline"/>)}{series.map(line=>makePaths(line.key).map((path,index)=><polyline key={`${line.label}-${index}`} points={path} fill="none" stroke={line.color} strokeWidth="1.35" vectorEffect="non-scaling-stroke"/>))}{hoveredRow&&Number.isFinite(hoveredTime)&&<g className="history-chart-cursor" pointerEvents="none"><line x1={hoveredX} x2={hoveredX} y1="12" y2="90"/>{series.map(line=>{const value=hoveredRow[line.key];return typeof value==="number"&&Number.isFinite(value)?<circle key={line.label} cx={hoveredX} cy={yFor(value)} r="1.5" fill={line.color}/>:null})}</g>}</svg>{hoveredRow&&<div className="history-chart-hover-card" style={{left:hoverPosition.x,top:hoverPosition.y,transform:`translate(${hoverPosition.x>hoverPosition.width-230?"-100%":"8px"},${hoverPosition.y<58?"8px":"-100%"})`}}><b>{hoveredRow.dt}</b><div>{series.map(line=>{const value=hoveredRow[line.key];return typeof value==="number"&&Number.isFinite(value)?<span key={line.label}><i style={{background:line.color}}/>{line.label}<strong>{value.toFixed(1)} {voltage?"V":temperature?"°C":"VDC"}</strong></span>:null})}</div></div><div className="history-chart-x-labels"><span>{timeLabel(chronological[0])}</span><span>{timeLabel(chronological[Math.floor((chronological.length-1)/2)])}</span><span>{timeLabel(chronological[chronological.length-1])}</span></div></div> : <div className="history-chart-empty">ยังไม่มีค่าที่ใช้วาดกราฟในช่วงเวลานี้</div>}
     <p className="history-chart-note">เว้นเส้นเมื่อไม่มีข้อมูลต่อเนื่องเกิน {gapMinutes} นาที · กราฟเรียงเวลาจากเก่าไปใหม่{metric === "dc" ? " · load_dc (VDC)" : ""}</p>
   </section>;
 }
