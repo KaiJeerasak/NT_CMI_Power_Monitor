@@ -81,19 +81,6 @@ export const readings = [
   { time: "10:45", mainAc1: 230, mainAc2: 229, mainAc3: 231, loadAc: 38, loadDc: 53.5, temperature: 31.3, humidity: 54.6, wifi: -28 },
 ];
 
-export const incidentSample = {
-  id: "INC-DEMO-006",
-  stationId: "CM-006",
-  title: "ตัวอย่างเหตุขัดข้องทางไฟฟ้า",
-  startedAt: "10:18:24",
-  elapsed: "24 นาที",
-  snapshots: [
-    { label: "ก่อนเกิดเหตุ", time: "10:15:00", mainAc1: 230, mainAc2: 229, mainAc3: 232, loadAc: 40, loadDc: 53.5, genOn: 0 },
-    { label: "เริ่มเหตุ", time: "10:18:24", mainAc1: 220, mainAc2: 219, mainAc3: 222, loadAc: 225, loadDc: 52.7, genOn: 255 },
-    { label: "ค่าล่าสุด", time: "10:42:14", mainAc1: 220, mainAc2: 219, mainAc3: 222, loadAc: 225, loadDc: 52.0, genOn: 255 },
-  ],
-};
-
 export const labelForStatus: Record<Status, string> = {
   normal: "ปกติ", warning: "เฝ้าระวัง", fault: "ขัดข้อง", offline: "ออฟไลน์",
 };
