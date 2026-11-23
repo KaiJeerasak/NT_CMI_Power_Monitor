@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Alarm, initialAlarms, labelForStatus, readings, Station, stations } from "@/lib/demo-data";
+import { MONITOR_SNAPSHOT_KEY, type MonitorSnapshot } from "@/lib/monitor-snapshot";
 import { ChiangMaiMap } from "./longdo-map";
 import { AdminUsersView } from "./admin-users";
 import { AuthGate, useAppAuth } from "./auth-gate";
@@ -969,6 +970,12 @@ function Dashboard() {
     const previous = alarms.find(item => item.id === alarm.id);
     return previous && !alarm.acknowledgedAt ? { ...alarm, acknowledgedBy: previous.acknowledgedBy, acknowledgedAt: previous.acknowledgedAt } : alarm;
   }), [alarmCandidates, alarms]);
+  const monitorStations = useMemo(() => applyAlarmStatus(stationData, activeAlarms), [stationData, activeAlarms]);
+  useEffect(() => {
+    if (!liveData) return;
+    const snapshot: MonitorSnapshot = { version: 1, updatedAt: new Date().toISOString(), stations: monitorStations, alarms: activeAlarms };
+    try { window.localStorage.setItem(MONITOR_SNAPSHOT_KEY, JSON.stringify(snapshot)); } catch { /* Monitor keeps its own live fallback if browser storage is unavailable. */ }
+  }, [liveData, monitorStations, activeAlarms]);
   const unresolvedAlarmCount = activeAlarms.filter(alarm => !alarm.resolvedAt).length;
   useEffect(() => {
     const unresolvedIds = new Set(activeAlarms.filter(alarm => !alarm.resolvedAt).map(alarm => alarm.id));
